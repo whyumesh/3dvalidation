@@ -85,7 +85,7 @@ email_log_folder = os.path.join(output_dir, f'ZBM_Email_Logs_{current_date}')
 os.makedirs(email_log_folder, exist_ok=True)
 
 def read_summary_report(zbm_code, zbm_name):
-    """Read the summary report Excel file for a ZBM and extract data as HTML table"""
+    """Read the summary report Excel file for a ZBM and extract data as HTML table with proper formatting"""
     try:
         # Find the summary report file - use wildcard pattern without safe_zbm_name
         pattern = os.path.join(reports_folder, f"ZBM_Summary_{zbm_code}_*.xlsx")
@@ -128,22 +128,61 @@ def read_summary_report(zbm_code, zbm_name):
 
         # Read headers starting from start_col
         headers = []
+        header_colors = []
         for col_idx in range(start_col, ws.max_column + 1):
-            header_val = ws.cell(row=header_row, column=col_idx).value
+            cell = ws.cell(row=header_row, column=col_idx)
+            header_val = cell.value
             if header_val is None or str(header_val).strip() == "":
                 break
             headers.append(str(header_val).strip())
+            # Get background color
+            if cell.fill.start_color and cell.fill.start_color.rgb:
+                header_colors.append(cell.fill.start_color.rgb)
+            else:
+                header_colors.append(None)
 
-        # Read data rows
+        # Read data rows with styling and track merged cells
         data = []
+        row_types = []  # Track which rows are 'total' rows
+        merged_cells_info = {}  # Track merged cells: {(row, col): (rowspan, colspan)}
+        
+        # Build merged cells map
+        for merged_range in ws.merged_cells.ranges:
+            min_row = merged_range.min_row
+            max_row = merged_range.max_row
+            min_col = merged_range.min_col
+            max_col = merged_range.max_col
+            
+            # Only process merges within our data range
+            if min_row >= header_row and min_row <= ws.max_row:
+                rowspan = max_row - min_row + 1
+                colspan = max_col - min_col + 1
+                
+                for r in range(min_row, max_row + 1):
+                    for c in range(min_col, max_col + 1):
+                        if r != min_row or c != min_col:
+                            # This cell is merged, mark to skip
+                            merged_cells_info[(r, c)] = None
+        
         empty_row_count = 0
         for row_idx in range(header_row + 1, ws.max_row + 1):
             row_data = []
             has_any_value = False
+            is_total_row = False
 
             for col_offset in range(len(headers)):
                 col_idx = start_col + col_offset
+                
+                # Skip if this cell is part of a merge (not the top-left)
+                if (row_idx, col_idx) in merged_cells_info and merged_cells_info[(row_idx, col_idx)] is None:
+                    row_data.append(None)  # Mark as skipped
+                    continue
+                
                 cell_value = ws.cell(row=row_idx, column=col_idx).value
+                
+                # Check if this is a "Total" row
+                if cell_value and str(cell_value).strip().lower() == 'total':
+                    is_total_row = True
                 
                 # Check if cell has any meaningful value
                 if cell_value is not None and str(cell_value).strip() != "":
@@ -154,6 +193,7 @@ def read_summary_report(zbm_code, zbm_name):
             # If row has at least one value, add it to data
             if has_any_value:
                 data.append(row_data)
+                row_types.append('total' if is_total_row else 'data')
                 empty_row_count = 0
             else:
                 empty_row_count += 1
@@ -174,8 +214,77 @@ def read_summary_report(zbm_code, zbm_name):
         # Reset index after filtering
         df_summary = df_summary.reset_index(drop=True)
         
-        # Convert to HTML table with styling
-        html_table = df_summary.to_html(index=False, border=1, classes='summary-table', na_rep='-')
+        # Build HTML table with matching Excel formatting
+        html_table = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px;">\n'
+        
+        # Add header row
+        html_table += '  <thead>\n    <tr style="background-color: #D3D3D3; font-weight: bold; text-align: center;">\n'
+        for i, header in enumerate(headers):
+            bg_color = ""
+            if header_colors[i]:
+                # Convert hex color if needed
+                hex_color = header_colors[i]
+                if hex_color.startswith('FF'):
+                    hex_color = '#' + hex_color[2:]
+                bg_color = f' background-color: {hex_color};'
+            html_table += f'      <th style="{bg_color} padding: 8px; border: 1px solid #000;">{header}</th>\n'
+        html_table += '    </tr>\n  </thead>\n'
+        
+        # Add data rows with merged cell handling
+        html_table += '  <tbody>\n'
+        
+        # Track which cells we've rendered to handle merges
+        rendered_cells = set()
+        
+        for row_idx, (_, row) in enumerate(df_summary.iterrows()):
+            actual_excel_row = header_row + 1 + row_idx
+            
+            # Check if this is a total row
+            is_total = row_idx < len(row_types) and row_types[row_idx] == 'total'
+            row_style = 'font-weight: bold; background-color: #E6E6E6;' if is_total else ''
+            html_table += f'    <tr style="{row_style}">\n'
+            
+            for col_idx, col in enumerate(headers):
+                actual_excel_col = start_col + col_idx
+                
+                # Check if already rendered as part of a merge
+                if (actual_excel_row, actual_excel_col) in rendered_cells:
+                    continue
+                
+                # Check if this cell starts a merge
+                colspan = 1
+                rowspan = 1
+                
+                for merged_range in ws.merged_cells.ranges:
+                    if actual_excel_row == merged_range.min_row and actual_excel_col == merged_range.min_col:
+                        rowspan = merged_range.max_row - merged_range.min_row + 1
+                        colspan = merged_range.max_col - merged_range.min_col + 1
+                        
+                        # Mark all cells in this merge as rendered
+                        for r in range(merged_range.min_row, merged_range.max_row + 1):
+                            for c in range(merged_range.min_col, merged_range.max_col + 1):
+                                rendered_cells.add((r, c))
+                        break
+                
+                # Get cell value
+                value = row[col]
+                if pd.isna(value):
+                    value = '-'
+                else:
+                    value = str(value)
+                
+                # Add merge attributes if needed
+                merge_attr = ''
+                if rowspan > 1:
+                    merge_attr += f' rowspan="{rowspan}"'
+                if colspan > 1:
+                    merge_attr += f' colspan="{colspan}"'
+                
+                html_table += f'      <td style="padding: 5px; border: 1px solid #000; text-align: center;"{merge_attr}>{value}</td>\n'
+            
+            html_table += '    </tr>\n'
+        
+        html_table += '  </tbody>\n</table>'
         
         return html_table
         
@@ -294,10 +403,3 @@ for _, zbm_row in zbms.iterrows():
 print(f"\n🎉 Email automation completed!")
 print(f"📊 Total emails displayed: {email_count} out of {len(zbms)} ZBMs")
 print(f"📁 Email logs saved in: {email_log_folder}")
-# ```
-
-# Perfect! Now the code **replaces "None" with an empty string** in the first column instead of removing the entire row. This way:
-
-# - The Total row stays intact with all its data
-# - The "None" text in the first column is replaced with blank/empty
-# - All other columns in the Total row remain visible
