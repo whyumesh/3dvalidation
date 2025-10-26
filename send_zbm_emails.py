@@ -141,78 +141,52 @@ def read_summary_report(zbm_code, zbm_name):
             else:
                 header_colors.append(None)
 
-        # Read data rows with styling and track merged cells
-        data = []
-        row_types = []  # Track which rows are 'total' rows
-        merged_cells_info = {}  # Track merged cells: {(row, col): (rowspan, colspan)}
-        
         # Build merged cells map
+        merged_cells_info = {}
         for merged_range in ws.merged_cells.ranges:
             min_row = merged_range.min_row
             max_row = merged_range.max_row
             min_col = merged_range.min_col
             max_col = merged_range.max_col
             
-            # Only process merges within our data range
+            # Store merge dimensions for top-left cell
             if min_row >= header_row and min_row <= ws.max_row:
-                rowspan = max_row - min_row + 1
-                colspan = max_col - min_col + 1
-                
                 for r in range(min_row, max_row + 1):
                     for c in range(min_col, max_col + 1):
                         if r != min_row or c != min_col:
-                            # This cell is merged, mark to skip
+                            # Mark as merged cell (not top-left)
                             merged_cells_info[(r, c)] = None
         
+        # Read all data rows from Excel
+        rows_data = []
         empty_row_count = 0
+        
         for row_idx in range(header_row + 1, ws.max_row + 1):
-            row_data = []
             has_any_value = False
             is_total_row = False
-
-            for col_offset in range(len(headers)):
-                col_idx = start_col + col_offset
-                
-                # Skip if this cell is part of a merge (not the top-left)
-                if (row_idx, col_idx) in merged_cells_info and merged_cells_info[(row_idx, col_idx)] is None:
-                    row_data.append(None)  # Mark as skipped
-                    continue
-                
+            
+            # Check if this is a "Total" row by looking at first column
+            first_cell_value = ws.cell(row=row_idx, column=start_col).value
+            if first_cell_value and str(first_cell_value).strip().lower() == 'total':
+                is_total_row = True
+            
+            # Check if row has any value
+            for col_idx in range(start_col, start_col + len(headers)):
                 cell_value = ws.cell(row=row_idx, column=col_idx).value
-                
-                # Check if this is a "Total" row
-                if cell_value and str(cell_value).strip().lower() == 'total':
-                    is_total_row = True
-                
-                # Check if cell has any meaningful value
                 if cell_value is not None and str(cell_value).strip() != "":
                     has_any_value = True
-                
-                row_data.append(cell_value)
-
-            # If row has at least one value, add it to data
+                    break
+            
             if has_any_value:
-                data.append(row_data)
-                row_types.append('total' if is_total_row else 'data')
+                rows_data.append({
+                    'row_idx': row_idx,
+                    'is_total': is_total_row
+                })
                 empty_row_count = 0
             else:
                 empty_row_count += 1
-                # Stop only after 2 consecutive completely empty rows
                 if empty_row_count >= 2:
                     break
-        
-        # Create DataFrame
-        df_summary = pd.DataFrame(data, columns=headers)
-        
-        # Replace "None" text in the first column with empty string
-        if len(df_summary) > 0 and len(df_summary.columns) > 0:
-            first_col = df_summary.columns[0]
-            df_summary[first_col] = df_summary[first_col].apply(
-                lambda x: '' if (pd.isna(x) or str(x).strip().lower() == 'none') else x
-            )
-        
-        # Reset index after filtering
-        df_summary = df_summary.reset_index(drop=True)
         
         # Build HTML table with matching Excel formatting
         html_table = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px;">\n'
@@ -233,22 +207,16 @@ def read_summary_report(zbm_code, zbm_name):
         # Add data rows with merged cell handling
         html_table += '  <tbody>\n'
         
-        # Track which cells we've rendered to handle merges
-        rendered_cells = set()
-        
-        for row_idx, (_, row) in enumerate(df_summary.iterrows()):
-            actual_excel_row = header_row + 1 + row_idx
+        for row_info in rows_data:
+            row_idx = row_info['row_idx']
+            is_total = row_info['is_total']
             
-            # Check if this is a total row
-            is_total = row_idx < len(row_types) and row_types[row_idx] == 'total'
             row_style = 'font-weight: bold; background-color: #E6E6E6;' if is_total else ''
             html_table += f'    <tr style="{row_style}">\n'
             
-            for col_idx, col in enumerate(headers):
-                actual_excel_col = start_col + col_idx
-                
-                # Check if already rendered as part of a merge
-                if (actual_excel_row, actual_excel_col) in rendered_cells:
+            for col_idx in range(start_col, start_col + len(headers)):
+                # Skip if this cell is part of a merge (not the top-left cell)
+                if (row_idx, col_idx) in merged_cells_info:
                     continue
                 
                 # Check if this cell starts a merge
@@ -256,22 +224,17 @@ def read_summary_report(zbm_code, zbm_name):
                 rowspan = 1
                 
                 for merged_range in ws.merged_cells.ranges:
-                    if actual_excel_row == merged_range.min_row and actual_excel_col == merged_range.min_col:
+                    if row_idx == merged_range.min_row and col_idx == merged_range.min_col:
                         rowspan = merged_range.max_row - merged_range.min_row + 1
                         colspan = merged_range.max_col - merged_range.min_col + 1
-                        
-                        # Mark all cells in this merge as rendered
-                        for r in range(merged_range.min_row, merged_range.max_row + 1):
-                            for c in range(merged_range.min_col, merged_range.max_col + 1):
-                                rendered_cells.add((r, c))
                         break
                 
-                # Get cell value
-                value = row[col]
-                if pd.isna(value):
+                # Get cell value directly from Excel
+                cell_value = ws.cell(row=row_idx, column=col_idx).value
+                if cell_value is None or pd.isna(cell_value):
                     value = '-'
                 else:
-                    value = str(value)
+                    value = str(cell_value).strip()
                 
                 # Add merge attributes if needed
                 merge_attr = ''
