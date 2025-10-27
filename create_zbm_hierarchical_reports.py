@@ -1,230 +1,243 @@
+#!/usr/bin/env python3
+"""
+ZBM Consolidated Files Generator
+Creates detailed consolidated files for each ZBM with specific columns from Sample Master Tracker
+"""
+
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import os
-from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment
-from copy import copy as copy_style
+from datetime import datetime
 import warnings
 
+# Suppress pandas warnings
 warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 
-def create_zbm_hierarchical_reports():
-    """
-    Create hierarchical ZBM reports with corrected tallies and normalization.
-    Fixed version ensures Final Answer consistency, robust category mapping, 
-    and accurate counts for all ZBMs (esp. ZN001701 Tadikonda).
-    """
-
-    print("🔄 Starting ZBM Hierarchical Reports Creation (fixed)...")
-
-    master_file = "ZBM Automation Email 2410252.xlsx"
-    logic_file = "logic.xlsx"
-    template_file = "zbm_summary.xlsx"
-
-    # Read master data
-    print(f"📖 Reading {master_file} ...")
+def create_zbm_consolidated_files():
+    """Create consolidated files for each ZBM with detailed data"""
+    
+    print("🚀 Starting ZBM Consolidated Files Generation...")
+    
+    # Read Sample Master Tracker data
+    print("📖 Reading Sample Master Tracker.xlsx...")
     try:
-        df = pd.read_excel(master_file, dtype=str)
-        print(f"✅ Loaded {len(df)} rows")
+        df = pd.read_excel('Demo File 1.xlsx')
+        print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
     except Exception as e:
-        print(f"❌ Error reading master file: {e}")
+        print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
         return
-
-    # --- Cleaning ---
-    df = df.fillna('').astype(str)
-    for c in df.columns:
-        df[c] = df[c].str.strip()
-
-    required_cols = [
-        'ZBM Terr Code','ZBM Name','ZBM EMAIL_ID',
-        'ABM Terr Code','ABM Name','ABM EMAIL_ID',
-        'TBM HQ','TBM EMAIL_ID','Doctor: Customer Code',
-        'Assigned Request Ids','Request Status','Rto Reason'
+    
+    # Required columns for consolidated file
+    required_columns = [
+        'Assigned Request Ids', 'Doctor: SAP Customer Code(New)', 'Doctor: Customer Code', 
+        'Doctor: Account Name', 'Item Code', 'SKU', 'Requested Quantity', 'TBM Division', 
+        'AFFILIATE', 'DIV_NAME', 'Date', 'Month', 'Invoice #', 'Invoice Date', 
+        'Dispatch Date', 'Delivery Date', 'Docket Number', 'Transporter Name', 
+        'Request Status', 'Rto Reason', 'Input Sample Request: Created By', 'TBM HQ', 'ABM Name', 'ABM Terr Code',
+        'ZBM Terr Code', 'ZBM Name'
     ]
-    missing = [c for c in required_cols if c not in df.columns]
+    
+    # Check for missing columns
+    missing = [c for c in required_columns if c not in df.columns]
     if missing:
-        print(f"❌ Missing columns: {missing}")
+        print(f"❌ Missing required columns in Sample Master Tracker.xlsx: {missing}")
+        print(f"📋 Available columns: {list(df.columns)}")
         return
-
-    df = df[df['Assigned Request Ids'] != '']
-    df = df[(df['ZBM Terr Code']!='')&(df['ABM Terr Code']!='')&(df['TBM HQ']!='')]
-
-    # Normalize
-    df['ZBM Terr Code'] = df['ZBM Terr Code'].str.upper()
-    df['ABM Terr Code'] = df['ABM Terr Code'].str.upper()
-    df['Request Status'] = df['Request Status'].str.lower().str.strip()
-    df['Rto Reason'] = df['Rto Reason'].str.lower().str.strip()
-
-    # --- Compute Final Answer using logic.xlsx or fallback ---
-    print("🧠 Computing Final Answer using logic.xlsx ...")
-    final_ans = {}
+    
+    # Debug: Check RTO Reason column data
+    print(f"🔍 RTO Reason column analysis:")
+    rto_reason_counts = df['Rto Reason'].value_counts(dropna=False)
+    print(f"   Total records: {len(df)}")
+    print(f"   Non-null RTO Reasons: {df['Rto Reason'].notna().sum()}")
+    print(f"   RTO Reason value counts:")
+    for reason, count in rto_reason_counts.head(10).items():
+        print(f"      '{reason}': {count}")
+    
+    # Debug: Check TBM HQ column data
+    print(f"🔍 TBM HQ column analysis:")
+    tbm_hq_counts = df['TBM HQ'].value_counts(dropna=False)
+    print(f"   Non-null TBM HQ: {df['TBM HQ'].notna().sum()}")
+    print(f"   TBM HQ value counts (top 10):")
+    for hq, count in tbm_hq_counts.head(10).items():
+        print(f"      '{hq}': {count}")
+    
+    # Remove rows where key fields are null or empty
+    df = df.dropna(subset=['ZBM Terr Code', 'ZBM Name', 'ABM Terr Code', 'ABM Name'])
+    df = df[df['ZBM Terr Code'].astype(str).str.strip() != '']
+    df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
+    
+    # Filter for ZBM codes that start with "ZN"
+    # df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
+    # print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
+    
+    # Compute Final Answer per unique request id using rules from logic.xlsx
+    print("🧠 Computing final status per unique Request Id using rules...")
     try:
-        sheet = pd.read_excel(logic_file, sheet_name='Sheet2', dtype=str).fillna('')
-        for _, row in sheet.iterrows():
-            statuses = [s.strip().lower() for s in row[:-1] if s]
-            key = tuple(sorted(set(statuses)))
-            final_ans[key] = row['Final Answer']
+        xls_rules = pd.ExcelFile('logic.xlsx')
+        sheet2 = pd.read_excel(xls_rules, 'Sheet2')
+
+        def normalize(text):
+            return str(text).strip().casefold()
+
+        rules = {}
+        for _, row in sheet2.iterrows():
+            statuses = [normalize(s) for s in row.drop('Final Answer').dropna().tolist()]
+            statuses = tuple(sorted(set(statuses)))
+            rules[statuses] = row['Final Answer']
+
+        # Group statuses by request id from master data
+        grouped = df.groupby('Assigned Request Ids')['Request Status'].apply(list).reset_index()
+
+        def get_final_answer(status_list):
+            key = tuple(sorted(set(normalize(s) for s in status_list)))
+            return rules.get(key, '❌ No matching rule')
+
+        grouped['Request Status'] = grouped['Request Status'].apply(lambda lst: sorted(set(lst), key=str))
+        grouped['Final Answer'] = grouped['Request Status'].apply(get_final_answer)
+
+        def has_action_pending(status_list):
+            target = 'action pending / in process'
+            return any(normalize(s) == target for s in status_list)
+        grouped['Has D Pending'] = grouped['Request Status'].apply(has_action_pending)
+
+        # Merge Final Answer back to main dataframe
+        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer', 'Has D Pending']], on='Assigned Request Ids', how='left')
+        
+        # Use Final Answer as Final Status
+        df['Final Status'] = df['Final Answer']
+        
+        print(f"✅ Successfully computed final status for all records")
+        
     except Exception as e:
-        print(f"⚠️ Could not read logic.xlsx ({e}). Using heuristic mapping.")
-        final_ans = {}
-
-    def canonical_status(s):
-        s = str(s).lower().strip()
-        if 'deliver' in s: return 'Delivered'
-        if 'dispatch' in s and 'transit' in s: return 'Dispatched & In Transit'
-        if 'dispatch' in s: return 'Dispatch Pending'
-        if 'hub' in s: return 'Action pending / In Process At Hub'
-        if 'ho' in s or 'in process' in s: return 'Action pending / In Process At HO'
-        if 'out of stock' in s: return 'Out of stock'
-        if 'on hold' in s: return 'On hold'
-        if 'not permitted' in s: return 'Not permitted'
-        if 'request' in s or 'raised' in s: return 'Request Raised'
-        return 'Other'
-
-    df['Final Answer'] = df['Request Status'].apply(canonical_status)
-
-    # --- Deduplicate ---
-    df_dedup = df.groupby(['Assigned Request Ids','ZBM Terr Code','ABM Terr Code']).agg({
-        'ZBM Name':'first',
-        'ZBM EMAIL_ID':'first',
-        'ABM Name':'first',
-        'ABM EMAIL_ID':'first',
-        'TBM HQ':'first',
-        'TBM EMAIL_ID':'first',
-        'Doctor: Customer Code': lambda x: ','.join(sorted(set(x))),
-        'Final Answer':'first',
-        'Rto Reason': lambda x: ','.join(sorted(set(x))),
-        'ABM HQ':'first' if 'ABM HQ' in df.columns else lambda x: None
-    }).reset_index()
-
-    print(f"📊 Deduplicated from {len(df)} → {len(df_dedup)} rows")
-
-    # --- Build ZBM list ---
-    zbms = df_dedup.groupby('ZBM Terr Code').agg({
-        'ZBM Name': lambda x: x.mode()[0] if len(x.mode())>0 else x.iloc[0],
-        'ZBM EMAIL_ID': lambda x: x.mode()[0] if len(x.mode())>0 else x.iloc[0]
-    }).reset_index().sort_values('ZBM Terr Code')
-
-    timestamp = datetime.now().strftime("%Y%m%d")
-    output_dir = f"ZBM_Reports_{timestamp}"
+        print(f"❌ Error computing final status from logic.xlsx: {e}")
+        # If logic file fails, use Request Status as Final Status
+        df['Final Status'] = df['Request Status']
+    
+    # Get unique ZBMs
+    zbms = df[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
+    print(f"📋 Found {len(zbms)} unique ZBMs")
+    
+    # Create output directory
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_dir = f"ZBM_Consolidated_Files_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)
-
-    print(f"📁 Output directory: {output_dir}")
-
-    # --- ZBM Processing Loop ---
+    print(f"📁 Created output directory: {output_dir}")
+    
+    # Process each ZBM
     for _, zbm_row in zbms.iterrows():
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
         zbm_email = zbm_row['ZBM EMAIL_ID']
-        zbm_data = df_dedup[df_dedup['ZBM Terr Code']==zbm_code]
-
-        print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name} ({len(zbm_data)} requests)")
-
-        abms = zbm_data[['ABM Terr Code','ABM Name']].drop_duplicates().sort_values('ABM Terr Code')
-        summary_data = []
-
-        for _, abm_row in abms.iterrows():
-            abm_code = abm_row['ABM Terr Code']
-            abm_name = abm_row['ABM Name']
-            abm_data = zbm_data[zbm_data['ABM Terr Code']==abm_code]
-
-            # Unique HCPs
-            unique_hcps = len(set(','.join(abm_data['Doctor: Customer Code']).split(',')))
-            unique_requests = abm_data['Assigned Request Ids'].nunique()
-
-            # Count Final Answers
-            def count_like(vals): return abm_data['Final Answer'].isin(vals).sum()
-
-            a = count_like(['Out of stock','On hold','Not permitted'])
-            b = count_like(['Request Raised','Action pending / In Process At HO'])
-            d = count_like(['Action pending / In Process At Hub'])
-            e = count_like(['Dispatch Pending'])
-            g = count_like(['Delivered'])
-            h = count_like(['Dispatched & In Transit'])
-
-            # RTO
-            r = abm_data['Rto Reason']
-            i1 = r.str.contains('incomplete',case=False,na=False).sum()
-            i2 = r.str.contains('non contact',case=False,na=False).sum()
-            i3 = r.str.contains('refus',case=False,na=False).sum()
-            i = i1+i2+i3
-
-            f = g+h+i
-            c = d+e+f
-            total = a+b+c
-
-            if total != unique_requests:
-                print(f"⚠️ Tally mismatch for {abm_code}: calc={total}, actual={unique_requests}")
-                print(f"  A={a}, B={b}, C={c}, D={d}, E={e}, F={f}, G={g}, H={h}, I={i}")
-                if zbm_code == 'ZN001701':
-                    abm_data.to_csv(os.path.join(output_dir,f"debug_{zbm_code}_{abm_code}.csv"),index=False)
-
-            summary_data.append({
-                'Area Name': abm_code,
-                'ABM Name': abm_name,
-                'Unique HCPs': unique_hcps,
-                'Requests Raised': total,
-                'Request Cancelled Out of Stock': a,
-                'Action Pending at HO': b,
-                'Sent to HUB': c,
-                'Pending for Invoicing': d,
-                'Pending for Dispatch': e,
-                'Requests Dispatched': f,
-                'Delivered': g,
-                'Dispatched In Transit': h,
-                'RTO': i,
-                'Incomplete Address': i1,
-                'Doctor Non Contactable': i2,
-                'Doctor Refused to Accept': i3
-            })
-
-        zbm_summary_df = pd.DataFrame(summary_data)
-        create_zbm_excel_report(zbm_code,zbm_name,zbm_email,zbm_summary_df,output_dir,template_file)
-
-    print("\n🎉 All ZBM reports created successfully!")
-
-def create_zbm_excel_report(zbm_code,zbm_name,zbm_email,summary_df,output_dir,template_file):
-    """Writes Excel report using template formatting."""
-    try:
-        wb = load_workbook(template_file)
-        ws = wb['ZBM']
-
-        # Find header row
-        header_row = None
-        for r in range(1,15):
-            for c in range(1,30):
-                val = ws.cell(row=r,column=c).value
-                if val and 'Area Name' in str(val):
-                    header_row = r
-                    break
-            if header_row: break
-        if not header_row: header_row = 7
-
-        data_row = header_row + 1
-        max_clear = max(len(summary_df)+10,50)
-
-        for r in range(data_row,data_row+max_clear):
-            for c in range(1,ws.max_column+1):
-                ws.cell(row=r,column=c).value=None
-
-        # Write data
-        for i,row in enumerate(summary_df.itertuples(index=False),start=data_row):
-            for j,val in enumerate(row,start=1):
-                ws.cell(row=i,column=j,value=val)
-
-        # Total row
-        trow = data_row + len(summary_df)
-        ws.cell(row=trow,column=2,value='Total').font=Font(bold=True)
-        for j in range(3,summary_df.shape[1]+1):
-            ws.cell(row=trow,column=j,value=int(summary_df.iloc[:,j-1].sum())).font=Font(bold=True)
-
-        fname = f"ZBM_Summary_{zbm_code}_{zbm_name.replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        wb.save(os.path.join(output_dir,fname))
-        print(f"✅ Created {fname}")
-
-    except Exception as e:
-        print(f"❌ Error creating Excel for {zbm_code}: {e}")
+        
+        print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name}")
+        
+        # Filter data for this ZBM
+        zbm_data = df[df['ZBM Terr Code'] == zbm_code]
+        
+        if len(zbm_data) == 0:
+            print(f"⚠️ No data found for ZBM: {zbm_code}")
+            continue
+        
+        print(f"   📊 Found {len(zbm_data)} records for this ZBM")
+        
+        # Select only the required columns for consolidated file
+        consolidated_columns = [
+            'Assigned Request Ids', 'Doctor: SAP Customer Code(New)', 'Doctor: Customer Code', 
+            'Doctor: Account Name', 'Item Code', 'SKU', 'Requested Quantity', 'TBM Division', 
+            'AFFILIATE', 'DIV_NAME', 'Date', 'Month', 'Invoice #', 'Invoice Date', 
+            'Dispatch Date', 'Delivery Date', 'Docket Number', 'Transporter Name', 
+            'Request Status', 'Final Status', 'Rto Reason', 'Input Sample Request: Created By', 'TBM HQ', 
+            'ABM Name', 'ABM Terr Code'
+        ]
+        
+        # Create consolidated data for this ZBM
+        consolidated_data = zbm_data[consolidated_columns].copy()
+        
+        # Format date columns to show only date without time
+        date_columns = ['Date', 'Invoice Date', 'Dispatch Date', 'Delivery Date']
+        for col in date_columns:
+            if col in consolidated_data.columns:
+                # Convert to datetime and format as date only
+                consolidated_data[col] = pd.to_datetime(consolidated_data[col], errors='coerce').dt.date
+                print(f"   📅 Formatted {col} column to date-only format")
+        
+        # Sort by ABM Terr Code and then by Assigned Request Ids
+        consolidated_data = consolidated_data.sort_values(['ABM Terr Code', 'Assigned Request Ids'])
+        
+        # Create filename
+        safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
+        filename = f"ZBM_Consolidated_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filepath = os.path.join(output_dir, filename)
+        
+        # Save to Excel
+        try:
+            with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+                consolidated_data.to_excel(writer, sheet_name='Consolidated Data', index=False)
+                
+                # Get the workbook and worksheet
+                workbook = writer.book
+                worksheet = writer.sheets['Consolidated Data']
+                
+                # Auto-adjust column widths
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+                
+                # Add header formatting
+                from openpyxl.styles import Font, PatternFill, Alignment
+                
+                header_font = Font(bold=True, name='Arial', size=10)
+                header_fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+                header_alignment = Alignment(horizontal='center', vertical='center')
+                
+                for cell in worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                
+                # Format date columns in Excel
+                date_columns_excel = ['Date', 'Invoice Date', 'Dispatch Date', 'Delivery Date']
+                for col_name in date_columns_excel:
+                    if col_name in consolidated_data.columns:
+                        # Find the column index
+                        col_idx = consolidated_data.columns.get_loc(col_name) + 1  # +1 because Excel is 1-indexed
+                        col_letter = worksheet.cell(row=1, column=col_idx).column_letter
+                        
+                        # Apply date format to all data cells in this column
+                        for row in range(2, worksheet.max_row + 1):  # Start from row 2 (skip header)
+                            cell = worksheet.cell(row=row, column=col_idx)
+                            if cell.value is not None:
+                                cell.number_format = 'dd/mm/yyyy'  # Date format without time
+            
+            print(f"   ✅ Created: {filename}")
+            print(f"   📊 Records in consolidated file: {len(consolidated_data)}")
+            
+            # Show sample of data
+            print(f"   📋 Sample data (first 3 rows):")
+            for idx, (_, row) in enumerate(consolidated_data.head(3).iterrows()):
+                print(f"      Row {idx+1}: {row['ABM Name']} - {row['Assigned Request Ids']} - {row['Request Status']} -> {row['Final Status']} - RTO: {row['Rto Reason']}")
+            
+            # Debug: Check RTO Reason data in this ZBM's consolidated file
+            rto_reason_data = consolidated_data['Rto Reason'].value_counts(dropna=False)
+            print(f"   🔍 RTO Reason data in consolidated file:")
+            print(f"      Non-null RTO Reasons: {consolidated_data['Rto Reason'].notna().sum()}")
+            for reason, count in rto_reason_data.head(5).items():
+                print(f"      '{reason}': {count}")
+            
+        except Exception as e:
+            print(f"   ❌ Error creating consolidated file for {zbm_code}: {e}")
+            continue
+    
+    print(f"\n🎉 Successfully created {len(zbms)} consolidated files in directory: {output_dir}")
+    print(f"📁 Each file contains detailed data for that specific ZBM only")
+    print(f"📧 These files are ready to be attached to ZBM emails")
 
 if __name__ == "__main__":
-    create_zbm_hierarchical_reports()
+    create_zbm_consolidated_files()
