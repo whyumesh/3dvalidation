@@ -1,3 +1,5 @@
+I can see the issue! The problem is that "Return" is a Final Answer status that's not being mapped to any category in your counting logic. This is causing the mismatch where Calculated != Total.
+Looking at the errors, "Return" should likely be counted as part of RTO (Return to Origin) along with the RTO reasons. Here's the corrected code:
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -198,14 +200,33 @@ def create_zbm_hierarchical_reports():
             transit_statuses = ['Dispatched & In Transit']
             dispatched_in_transit = len(abm_data[abm_data['Final Answer'].isin(transit_statuses)])
             
-            # RTO Reasons - Count requests with RTO reasons (more robust matching)
+            # **KEY FIX: Count "Return" Final Answer as RTO**
+            return_status_count = len(abm_data[abm_data['Final Answer'] == 'Return'])
+            
+            # RTO Reasons - Count requests with RTO reasons in the Rto Reason column
             rto_col = abm_data['Rto Reason'].astype(str).str.strip().str.lower()
             incomplete_address = (rto_col.str.contains('incomplete address', na=False, regex=False)).sum()
             doctor_non_contactable = (rto_col.str.contains('non contactable', na=False, regex=False)).sum()
             doctor_refused_to_accept = (rto_col.str.contains('refused to accept', na=False, regex=False)).sum()
             
-            # Calculate RTO as sum of RTO reasons
-            rto_total = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
+            # Calculate total RTO: RTO reasons + "Return" Final Answer
+            # Note: Some "Return" status may also have RTO reasons, so we need to avoid double counting
+            rto_from_reasons = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
+            rto_total = max(rto_from_reasons, return_status_count)  # Use max to avoid double counting
+            
+            # Alternative approach: If Return status always has RTO reason, just use return_status_count
+            # For safety, let's use the sum and handle any overlap:
+            # Count unique requests that have either "Return" status OR have RTO reasons
+            has_return_status = abm_data['Final Answer'] == 'Return'
+            has_rto_reason = (rto_col.str.contains('incomplete address', na=False, regex=False) | 
+                             rto_col.str.contains('non contactable', na=False, regex=False) |
+                             rto_col.str.contains('refused to accept', na=False, regex=False))
+            rto_total = (has_return_status | has_rto_reason).sum()
+            
+            # Recalculate individual RTO reasons to match the breakdown
+            incomplete_address = (has_rto_reason & rto_col.str.contains('incomplete address', na=False, regex=False)).sum()
+            doctor_non_contactable = (has_rto_reason & rto_col.str.contains('non contactable', na=False, regex=False)).sum()
+            doctor_refused_to_accept = (has_rto_reason & rto_col.str.contains('refused to accept', na=False, regex=False)).sum()
             
             # Calculated fields using formulas
             requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
@@ -213,8 +234,8 @@ def create_zbm_hierarchical_reports():
             requests_raised_calc = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # Total = A + B + C
             hold_delivery = 0
             
-            # Check for unmapped requests
-            all_mapped_statuses = ho_statuses + pending_statuses + hub_pending_statuses + dispatch_pending_statuses + delivered_statuses + transit_statuses
+            # Check for unmapped requests (excluding "Return" which is now mapped)
+            all_mapped_statuses = ho_statuses + pending_statuses + hub_pending_statuses + dispatch_pending_statuses + delivered_statuses + transit_statuses + ['Return']
             mapped = abm_data['Final Answer'].isin(all_mapped_statuses)
             unmapped_count = (~mapped).sum()
             
@@ -224,15 +245,15 @@ def create_zbm_hierarchical_reports():
                 print(f"         Unmapped statuses: {unmapped_statuses}")
             
             # Verify tally
-            if requests_raised_calc + unmapped_count != unique_requests:
-                print(f"      ❌ CRITICAL MISMATCH for ABM {abm_code}:")
-                print(f"         Calculated: {requests_raised_calc}, Unmapped: {unmapped_count}, Total: {unique_requests}")
+            if requests_raised_calc != unique_requests:
+                print(f"      ❌ TALLY MISMATCH for ABM {abm_code}:")
+                print(f"         Calculated: {requests_raised_calc}, Actual: {unique_requests}, Diff: {unique_requests - requests_raised_calc}")
                 print(f"         A={request_cancelled_out_of_stock}, B={action_pending_at_ho}, C={sent_to_hub}")
                 print(f"         D={pending_for_invoicing}, E={pending_for_dispatch}, F={requests_dispatched}")
                 print(f"         G={delivered}, H={dispatched_in_transit}, I={rto_total}")
                 total_validation_errors += 1
             
-            # Use actual unique request count (not calculated) to ensure accuracy
+            # Use actual unique request count to ensure accuracy
             requests_raised = unique_requests
             
             # Create Area Name
@@ -284,6 +305,8 @@ def create_zbm_hierarchical_reports():
     print(f"📊 Total ZBMs processed: {file_count}")
     if total_validation_errors > 0:
         print(f"⚠️ WARNING: {total_validation_errors} ABMs had validation errors")
+    else:
+        print(f"✅ All tallies match perfectly!")
 
 def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_dir):
     """Create Excel report for a specific ZBM with perfect formatting"""
@@ -367,6 +390,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
                     column_mapping['Hold Delivery'] = col_idx
         
         # Clear existing data rows
+        Clear existing data rows
         max_clear_rows = max(len(summary_df) + 10, 50)
         for r in range(data_start_row, data_start_row + max_clear_rows):
             for c in range(1, ws.max_column + 1):
@@ -414,7 +438,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
                     except:
                         pass
 
-        # # Add total row
+        # Add total row
         total_row = data_start_row + len(summary_df)
         copy_row_style(template_data_row, total_row)
         
