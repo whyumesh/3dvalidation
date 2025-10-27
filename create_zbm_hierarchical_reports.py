@@ -226,9 +226,10 @@ def create_zbm_hierarchical_reports():
             
             # Assign each RTO request to ONE category based on priority
             # Only count requests that have Return status
+            # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
             incomplete_address = (has_return_status & has_incomplete_address).sum()
             doctor_refused_to_accept = (has_return_status & ~has_incomplete_address & has_refused_to_accept).sum()
-            doctor_non_contactable = (has_return_status & ~has_incomplete_address & ~has_non_contactable & has_refused_to_accept).sum()
+            doctor_non_contactable = (has_return_status & ~has_incomplete_address & ~has_refused_to_accept & has_non_contactable).sum()
             
             # Handle Return status without RTO reason - add to Non Contactable as catch-all
             return_no_reason = (has_return_status & ~has_any_rto_reason).sum()
@@ -241,6 +242,7 @@ def create_zbm_hierarchical_reports():
                 print(f"      ⚠️ RTO Breakdown mismatch for ABM {abm_code}:")
                 print(f"         RTO Total: {rto_total}, Reasons Sum: {rto_reasons_sum}")
                 print(f"         Incomplete: {incomplete_address}, Refused: {doctor_refused_to_accept}, Non-contactable: {doctor_non_contactable}")
+                print(f"         Return without reason: {return_no_reason}")
             
             # === CALCULATED FIELDS ===
             # F = Requests Dispatched = G + H + I
@@ -367,7 +369,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         data_start_row = header_row + 1
         
         # Read actual column positions from template header row
-         column_mapping = {}
+        column_mapping = {}
         for col_idx in range(1, min(30, ws.max_column + 1)):
             header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
