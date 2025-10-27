@@ -207,10 +207,27 @@ def create_zbm_hierarchical_reports():
             c = d + e + f  # Sent to HUB
             total = a + b + c
 
-            # Validation
+            # Validation with detailed diagnosis
             if total != unique_requests:
                 print(f"⚠️ Tally mismatch for {abm_code}: calculated={total}, actual={unique_requests}")
                 print(f"   A={a}, B={b}, C={c}, D={d}, E={e}, F={f}, G={g}, H={h}, I={i}")
+                
+                # Show what Final Answers we're missing
+                all_final_answers = abm_data['Final Answer'].value_counts()
+                print(f"   📊 Actual Final Answer distribution:")
+                for ans, cnt in all_final_answers.items():
+                    print(f"      • {ans}: {cnt}")
+                
+                # Check for unmapped statuses
+                unmapped = abm_data[~abm_data['Final Answer'].isin([
+                    'Out of stock', 'On hold', 'Not permitted',
+                    'Request Raised', 'Action pending / In Process At HO',
+                    'Action pending / In Process At Hub', 'Dispatch Pending',
+                    'Delivered', 'Dispatched & In Transit'
+                ])]
+                if len(unmapped) > 0:
+                    print(f"   ⚠️ Found {len(unmapped)} unmapped Final Answers:")
+                    print(f"      {unmapped['Final Answer'].unique()}")
 
             summary_data.append({
                 'Area Name': abm_code,
