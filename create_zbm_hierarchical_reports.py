@@ -1,5 +1,3 @@
-I can see the issue! The problem is that "Return" is a Final Answer status that's not being mapped to any category in your counting logic. This is causing the mismatch where Calculated != Total.
-Looking at the errors, "Return" should likely be counted as part of RTO (Return to Origin) along with the RTO reasons. Here's the corrected code:
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -179,62 +177,88 @@ def create_zbm_hierarchical_reports():
             unique_hcps = abm_data['Doctor: Customer Code'].nunique()
             unique_requests = len(abm_data)
             
-            # HO Section (A + B) - Count requests by Final Answer
+            # === SECTION A: Request Cancelled Out of Stock ===
+            # Final Answer: Out of stock, On hold, Not permitted
             ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
-            request_cancelled_out_of_stock = len(abm_data[abm_data['Final Answer'].isin(ho_statuses)])
+            request_cancelled_out_of_stock = (abm_data['Final Answer'].isin(ho_statuses)).sum()
             
+            # === SECTION B: Action Pending at HO ===
+            # Final Answer: Request Raised, Action pending / In Process At HO
             pending_statuses = ['Request Raised', 'Action pending / In Process At HO']
-            action_pending_at_ho = len(abm_data[abm_data['Final Answer'].isin(pending_statuses)])
+            action_pending_at_ho = (abm_data['Final Answer'].isin(pending_statuses)).sum()
             
-            # HUB Section (D + E)
+            # === SECTION D: Pending for Invoicing ===
+            # Final Answer: Action pending / In Process At Hub
             hub_pending_statuses = ['Action pending / In Process At Hub']
-            pending_for_invoicing = len(abm_data[abm_data['Final Answer'].isin(hub_pending_statuses)])
+            pending_for_invoicing = (abm_data['Final Answer'].isin(hub_pending_statuses)).sum()
             
-            dispatch_pending_statuses = ['Dispatch  Pending']
-            pending_for_dispatch = len(abm_data[abm_data['Final Answer'].isin(dispatch_pending_statuses)])
+            # === SECTION E: Pending for Dispatch ===
+            # Final Answer: Dispatch Pending
+            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending']
+            pending_for_dispatch = (abm_data['Final Answer'].isin(dispatch_pending_statuses)).sum()
             
-            # Delivery Status (G + H)
+            # === SECTION G: Delivered ===
+            # Final Answer: Delivered
             delivered_statuses = ['Delivered']
-            delivered = len(abm_data[abm_data['Final Answer'].isin(delivered_statuses)])
+            delivered = (abm_data['Final Answer'].isin(delivered_statuses)).sum()
             
+            # === SECTION H: Dispatched & In Transit ===
+            # Final Answer: Dispatched & In Transit
             transit_statuses = ['Dispatched & In Transit']
-            dispatched_in_transit = len(abm_data[abm_data['Final Answer'].isin(transit_statuses)])
+            dispatched_in_transit = (abm_data['Final Answer'].isin(transit_statuses)).sum()
             
-            # **KEY FIX: Count "Return" Final Answer as RTO**
-            return_status_count = len(abm_data[abm_data['Final Answer'] == 'Return'])
+            # === SECTION I: RTO (Return to Origin) ===
+            # RTO Calculation with Priority-Based Assignment
+            # Each request counted only once under the highest priority reason
+            # Priority Order: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
             
-            # RTO Reasons - Count requests with RTO reasons in the Rto Reason column
-            rto_col = abm_data['Rto Reason'].astype(str).str.strip().str.lower()
-            incomplete_address = (rto_col.str.contains('incomplete address', na=False, regex=False)).sum()
-            doctor_non_contactable = (rto_col.str.contains('non contactable', na=False, regex=False)).sum()
-            doctor_refused_to_accept = (rto_col.str.contains('refused to accept', na=False, regex=False)).sum()
-            
-            # Calculate total RTO: RTO reasons + "Return" Final Answer
-            # Note: Some "Return" status may also have RTO reasons, so we need to avoid double counting
-            rto_from_reasons = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
-            rto_total = max(rto_from_reasons, return_status_count)  # Use max to avoid double counting
-            
-            # Alternative approach: If Return status always has RTO reason, just use return_status_count
-            # For safety, let's use the sum and handle any overlap:
-            # Count unique requests that have either "Return" status OR have RTO reasons
             has_return_status = abm_data['Final Answer'] == 'Return'
-            has_rto_reason = (rto_col.str.contains('incomplete address', na=False, regex=False) | 
-                             rto_col.str.contains('non contactable', na=False, regex=False) |
-                             rto_col.str.contains('refused to accept', na=False, regex=False))
-            rto_total = (has_return_status | has_rto_reason).sum()
             
-            # Recalculate individual RTO reasons to match the breakdown
-            incomplete_address = (has_rto_reason & rto_col.str.contains('incomplete address', na=False, regex=False)).sum()
-            doctor_non_contactable = (has_rto_reason & rto_col.str.contains('non contactable', na=False, regex=False)).sum()
-            doctor_refused_to_accept = (has_rto_reason & rto_col.str.contains('refused to accept', na=False, regex=False)).sum()
+            # RTO Reasons - Check Rto Reason column
+            rto_col = abm_data['Rto Reason'].astype(str).str.strip().str.lower()
+            has_incomplete_address = rto_col.str.contains('incomplete address', na=False, regex=False)
+            has_refused_to_accept = rto_col.str.contains('refused to accept', na=False, regex=False)
+            has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False)
             
-            # Calculated fields using formulas
-            requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
-            sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched  # C = D + E + F
-            requests_raised_calc = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # Total = A + B + C
+            # Any RTO reason present
+            has_any_rto_reason = has_incomplete_address | has_non_contactable | has_refused_to_accept
+            
+            # Total RTO: Requests with "Return" status OR any RTO reason (avoid double counting)
+            is_rto = has_return_status | has_any_rto_reason
+            rto_total = is_rto.sum()
+            
+            # Assign each RTO request to ONE category based on priority
+            # Only count RTO requests (those identified above)
+            incomplete_address = (is_rto & has_incomplete_address).sum()
+            doctor_refused_to_accept = (is_rto & ~has_incomplete_address & has_refused_to_accept).sum()
+            doctor_non_contactable = (is_rto & ~has_incomplete_address & ~has_refused_to_accept & has_non_contactable).sum()
+            
+            # Handle Return status without RTO reason - add to Non Contactable as catch-all
+            return_no_reason = (has_return_status & ~has_any_rto_reason).sum()
+            if return_no_reason > 0:
+                doctor_non_contactable += return_no_reason
+            
+            # Validate RTO breakdown
+            rto_reasons_sum = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
+            if rto_reasons_sum != rto_total:
+                print(f"      ⚠️ RTO Breakdown mismatch for ABM {abm_code}:")
+                print(f"         RTO Total: {rto_total}, Reasons Sum: {rto_reasons_sum}")
+                print(f"         Incomplete: {incomplete_address}, Refused: {doctor_refused_to_accept}, Non-contactable: {doctor_non_contactable}")
+            
+            # === CALCULATED FIELDS ===
+            # F = Requests Dispatched = G + H + I
+            requests_dispatched = delivered + dispatched_in_transit + rto_total
+            
+            # C = Sent to HUB = D + E + F
+            sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
+            
+            # Total = Requests Raised = A + B + C
+            requests_raised_calc = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
+            
+            # Hold Delivery (not used in current logic)
             hold_delivery = 0
             
-            # Check for unmapped requests (excluding "Return" which is now mapped)
+            # Check for unmapped requests
             all_mapped_statuses = ho_statuses + pending_statuses + hub_pending_statuses + dispatch_pending_statuses + delivered_statuses + transit_statuses + ['Return']
             mapped = abm_data['Final Answer'].isin(all_mapped_statuses)
             unmapped_count = (~mapped).sum()
@@ -345,6 +369,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         
         data_start_row = header_row + 1
         
+        #  
         # Read actual column positions from template header row
         column_mapping = {}
         for col_idx in range(1, min(30, ws.max_column + 1)):
@@ -390,7 +415,6 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
                     column_mapping['Hold Delivery'] = col_idx
         
         # Clear existing data rows
-        Clear existing data rows
         max_clear_rows = max(len(summary_df) + 10, 50)
         for r in range(data_start_row, data_start_row + max_clear_rows):
             for c in range(1, ws.max_column + 1):
