@@ -391,4 +391,105 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
                 elif header_str == 'Delivered' or 'Delivered (G)' in header_str:
                     column_mapping['Delivered'] = col_idx
                 elif 'Dispatched & In Transit' in header_str or 'Dispatched In Transit' in header_str:
-                    column_mapping['Dispatched In Tran
+                    column_mapping['Dispatched In Transit'] = col_idx
+                elif header_str == 'RTO' or 'RTO (I)' in header_str:
+                    column_mapping['RTO'] = col_idx
+                elif 'Incomplete Address' in header_str:
+                    column_mapping['Incomplete Address'] = col_idx
+                elif 'Doctor Non Contactable' in header_str or 'Dr. Non contactable' in header_str:
+                    column_mapping['Doctor Non Contactable'] = col_idx
+                elif 'Doctor Refused' in header_str or 'Refused to Accept' in header_str:
+                    column_mapping['Doctor Refused to Accept'] = col_idx
+                elif 'Hold Delivery' in header_str:
+                    column_mapping['Hold Delivery'] = col_idx
+        
+        # Clear existing data rows
+        max_clear_rows = max(len(summary_df) + 10, 50)
+        for r in range(data_start_row, data_start_row + max_clear_rows):
+            for c in range(1, ws.max_column + 1):
+                try:
+                    cell = ws.cell(row=r, column=c)
+                    cell.value = None
+                except:
+                    pass
+
+        def copy_row_style(src_row_idx, dst_row_idx):
+            """Copy formatting from source row to destination row"""
+            for c in range(1, ws.max_column + 1):
+                try:
+                    src = ws.cell(row=src_row_idx, column=c)
+                    dst = ws.cell(row=dst_row_idx, column=c)
+                    
+                    if src.font:
+                        dst.font = copy_style(src.font)
+                    if src.alignment:
+                        dst.alignment = copy_style(src.alignment)
+                    if src.border:
+                        dst.border = copy_style(src.border)
+                    if src.fill:
+                        dst.fill = copy_style(src.fill)
+                    dst.number_format = src.number_format
+                except:
+                    pass
+
+        # Write data rows
+        template_data_row = data_start_row
+        for i in range(len(summary_df)):
+            target_row = data_start_row + i
+            copy_row_style(template_data_row, target_row)
+            
+            for col_name, col_idx in column_mapping.items():
+                if col_name in summary_df.columns:
+                    value = summary_df.iloc[i][col_name]
+                    
+                    try:
+                        cell = ws.cell(row=target_row, column=col_idx)
+                        cell.value = value
+                        
+                        if isinstance(value, (int, float)) and not pd.isna(value):
+                            cell.number_format = '0'
+                    except:
+                        pass
+
+        # Add total row
+        total_row = data_start_row + len(summary_df)
+        copy_row_style(template_data_row, total_row)
+        
+        if 'ABM Name' in column_mapping:
+            try:
+                cell = ws.cell(row=total_row, column=column_mapping['ABM Name'])
+                cell.value = "Total"
+                cell.font = Font(bold=True, name='Arial', size=10)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            except:
+                pass
+        
+        # Calculate and write totals
+        for col_name, col_idx in column_mapping.items():
+            if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
+                total_value = int(summary_df[col_name].sum())
+                
+                try:
+                    cell = ws.cell(row=total_row, column=col_idx)
+                    cell.value = total_value
+                    cell.font = Font(bold=True, name='Arial', size=10)
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.number_format = '0'
+                except:
+                    pass
+
+        # Save file
+        safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
+        filename = f"ZBM_Summary_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        filepath = os.path.join(output_dir, filename)
+        
+        wb.save(filepath)
+        print(f"   ✅ Created: {filename}")
+        
+    except Exception as e:
+        print(f"   ❌ Error creating Excel report for {zbm_code}: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    create_zbm_hierarchical_reports()
