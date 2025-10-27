@@ -1,0 +1,311 @@
+Processing ZBM: ZN000933 - Praveen Kumar Sharma
+   📊 Found 1 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN000933_Praveen_Kumar_Sharma_20251027.xlsx
+
+🔄 Processing ZBM: ZN001152 - Dinesh Kumar
+   📊 Found 4 ABMs under this ZBM
+      ⚠️ 4 unmapped requests for ABM IA003881
+         Unmapped statuses: {'Return': 4}
+      ❌ CRITICAL MISMATCH for ABM IA003881:
+         Calculated: 87, Unmapped: 4, Total: 87
+         A=0, B=0, C=87
+         D=0, E=0, F=87
+         G=72, H=11, I=4
+      ⚠️ 5 unmapped requests for ABM IA003882
+         Unmapped statuses: {'Return': 5}
+      ❌ CRITICAL MISMATCH for ABM IA003882:
+         Calculated: 31, Unmapped: 5, Total: 31
+         A=0, B=0, C=31
+         D=0, E=0, F=31
+         G=26, H=0, I=5
+      ⚠️ 4 unmapped requests for ABM IA003884
+         Unmapped statuses: {'Return': 4}
+      ❌ CRITICAL MISMATCH for ABM IA003884:
+         Calculated: 36, Unmapped: 4, Total: 36
+         A=0, B=0, C=36
+         D=3, E=0, F=33
+         G=27, H=2, I=4
+      ⚠️ 3 unmapped requests for ABM IA004408
+         Unmapped statuses: {'Return': 3}
+      ❌ CRITICAL MISMATCH for ABM IA004408:
+         Calculated: 35, Unmapped: 3, Total: 35
+         A=0, B=0, C=35
+         D=0, E=0, F=35
+         G=32, H=0, I=3
+   ✅ Created: ZBM_Summary_ZN001152_Dinesh_Kumar_20251027.xlsx
+
+🔄 Processing ZBM: ZN001153 - Rajeev Ranjan
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA003887
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA003887:
+         Calculated: 30, Unmapped: 1, Total: 30
+         A=0, B=0, C=30
+         D=0, E=0, F=30
+         G=28, H=1, I=1
+      ⚠️ 2 unmapped requests for ABM IA003890
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA003890:
+         Calculated: 78, Unmapped: 2, Total: 78
+         A=0, B=0, C=78
+         D=0, E=0, F=78
+         G=76, H=0, I=2
+   ✅ Created: ZBM_Summary_ZN001153_Rajeev_Ranjan_20251027.xlsx
+
+🔄 Processing ZBM: ZN001232 - Ravikant Chhabra
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 7 unmapped requests for ABM IA004115
+         Unmapped statuses: {'Return': 7}
+      ❌ CRITICAL MISMATCH for ABM IA004115:
+         Calculated: 24, Unmapped: 7, Total: 28
+         A=1, B=0, C=23
+         D=0, E=0, F=23
+         G=19, H=1, I=3
+   ✅ Created: ZBM_Summary_ZN001232_Ravikant_Chhabra_20251027.xlsx
+
+🔄 Processing ZBM: ZN001365 - Bhavan Chhaganlal Gor
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 4 unmapped requests for ABM IA003886
+         Unmapped statuses: {'Return': 4}
+      ❌ CRITICAL MISMATCH for ABM IA003886:
+         Calculated: 37, Unmapped: 4, Total: 37
+         A=0, B=0, C=37
+         D=0, E=0, F=37
+         G=33, H=0, I=4
+      ⚠️ 3 unmapped requests for ABM IA003891
+         Unmapped statuses: {'Return': 3}
+      ❌ CRITICAL MISMATCH for ABM IA003891:
+         Calculated: 21, Unmapped: 3, Total: 21
+         A=0, B=0, C=21
+         D=0, E=0, F=21
+         G=18, H=0, I=3
+      ⚠️ 6 unmapped requests for ABM IA004410
+         Unmapped statuses: {'Return': 6}
+      ❌ CRITICAL MISMATCH for ABM IA004410:
+         Calculated: 28, Unmapped: 6, Total: 28
+         A=0, B=0, C=28
+         D=0, E=0, F=28
+         G=21, H=1, I=6
+   ✅ Created: ZBM_Summary_ZN001365_Bhavan_Chhaganlal_Gor_20251027.xlsx
+
+🔄 Processing ZBM: ZN001557 - Prabhakar Kumar Mishra
+   📊 Found 1 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA000365
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA000365:
+         Calculated: 4, Unmapped: 1, Total: 4
+         A=0, B=0, C=4
+         D=0, E=0, F=4
+         G=3, H=0, I=1
+   ✅ Created: ZBM_Summary_ZN001557_Prabhakar_Kumar_Mishra_20251027.xlsx
+
+🔄 Processing ZBM: ZN001562 - Gurmeet Singh Chawla
+   📊 Found 4 ABMs under this ZBM
+      ⚠️ 2 unmapped requests for ABM IA000475
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA000475:
+         Calculated: 6, Unmapped: 2, Total: 6
+         A=0, B=0, C=6
+         D=0, E=0, F=6
+         G=4, H=0, I=2
+      ⚠️ 2 unmapped requests for ABM IA000490
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA000490:
+         Calculated: 3, Unmapped: 2, Total: 3
+         A=1, B=0, C=2
+         D=0, E=0, F=2
+         G=0, H=0, I=2
+   ✅ Created: ZBM_Summary_ZN001562_Gurmeet_Singh_Chawla_20251027.xlsx
+
+🔄 Processing ZBM: ZN001575 - Anjan Kumar Das
+   📊 Found 1 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001575_Anjan_Kumar_Das_20251027.xlsx
+
+🔄 Processing ZBM: ZN001577 - Rajkumar Tripathi
+   📊 Found 3 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001577_Rajkumar_Tripathi_20251027.xlsx
+
+🔄 Processing ZBM: ZN001643 - Kamleshkumar Ramanbhai Parmar
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA003179
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA003179:
+         Calculated: 3, Unmapped: 1, Total: 3
+         A=0, B=0, C=3
+         D=0, E=0, F=3
+         G=1, H=1, I=1
+      ⚠️ 3 unmapped requests for ABM IA003180
+         Unmapped statuses: {'Return': 3}
+      ❌ CRITICAL MISMATCH for ABM IA003180:
+         Calculated: 25, Unmapped: 3, Total: 25
+         A=0, B=0, C=25
+         D=0, E=0, F=25
+         G=22, H=0, I=3
+   ✅ Created: ZBM_Summary_ZN001643_Kamleshkumar_Ramanbhai_Parmar_20251027.xlsx
+
+🔄 Processing ZBM: ZN001694 - Ch Sarath Chandra
+   📊 Found 1 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001694_Ch_Sarath_Chandra_20251027.xlsx
+
+🔄 Processing ZBM: ZN001696 - Sumon Dey
+   📊 Found 2 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001696_Sumon_Dey_20251027.xlsx
+
+🔄 Processing ZBM: ZN001697 - Mohit Bhardwaj
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA005156
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA005156:
+         Calculated: 10, Unmapped: 1, Total: 10
+         A=0, B=0, C=10
+         D=0, E=0, F=10
+         G=9, H=0, I=1
+      ⚠️ 1 unmapped requests for ABM IA005161
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA005161:
+         Calculated: 4, Unmapped: 1, Total: 4
+         A=0, B=0, C=4
+         D=0, E=0, F=4
+         G=3, H=0, I=1
+   ✅ Created: ZBM_Summary_ZN001697_Mohit_Bhardwaj_20251027.xlsx
+
+🔄 Processing ZBM: ZN001700 - Suchendra Shukla
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA002940
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA002940:
+         Calculated: 5, Unmapped: 1, Total: 5
+         A=0, B=0, C=5
+         D=0, E=0, F=5
+         G=4, H=0, I=1
+      ⚠️ 2 unmapped requests for ABM IA002942
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA002942:
+         Calculated: 27, Unmapped: 2, Total: 27
+         A=0, B=0, C=27
+         D=0, E=0, F=27
+         G=25, H=0, I=2
+   ✅ Created: ZBM_Summary_ZN001700_Suchendra_Shukla_20251027.xlsx
+
+🔄 Processing ZBM: ZN001701 - Tadikonda D V Satish Kumar
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 24 unmapped requests for ABM IA000797
+         Unmapped statuses: {'Return': 24}
+      ❌ CRITICAL MISMATCH for ABM IA000797:
+         Calculated: 611, Unmapped: 24, Total: 611
+         A=123, B=0, C=488
+         D=0, E=0, F=488
+         G=453, H=11, I=24
+      ⚠️ 26 unmapped requests for ABM IA000798
+         Unmapped statuses: {'Return': 26}
+      ❌ CRITICAL MISMATCH for ABM IA000798:
+         Calculated: 663, Unmapped: 26, Total: 661
+         A=47, B=0, C=616
+         D=0, E=0, F=616
+         G=585, H=3, I=28
+      ⚠️ 24 unmapped requests for ABM IA000803
+         Unmapped statuses: {'Return': 24}
+      ❌ CRITICAL MISMATCH for ABM IA000803:
+         Calculated: 767, Unmapped: 24, Total: 760
+         A=12, B=0, C=755
+         D=0, E=0, F=755
+         G=722, H=2, I=31
+   ✅ Created: ZBM_Summary_ZN001701_Tadikonda_D_V_Satish_Kumar_20251027.xlsx
+
+🔄 Processing ZBM: ZN001733 - Badam Singh Yadav
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 2 unmapped requests for ABM IA004660
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA004660:
+         Calculated: 108, Unmapped: 2, Total: 108
+         A=1, B=0, C=107
+         D=0, E=0, F=107
+         G=94, H=11, I=2
+      ⚠️ 1 unmapped requests for ABM IA005452
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA005452:
+         Calculated: 43, Unmapped: 1, Total: 43
+         A=11, B=0, C=32
+         D=0, E=0, F=32
+         G=26, H=5, I=1
+   ✅ Created: ZBM_Summary_ZN001733_Badam_Singh_Yadav_20251027.xlsx
+
+🔄 Processing ZBM: ZN001734 - Jithu M.
+   📊 Found 2 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001734_Jithu_M._20251027.xlsx
+
+🔄 Processing ZBM: ZN001735 - Shailesh Rajaram Sharma
+   📊 Found 2 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001735_Shailesh_Rajaram_Sharma_20251027.xlsx
+
+🔄 Processing ZBM: ZN001745 - Sarful Islam
+   📊 Found 3 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001745_Sarful_Islam_20251027.xlsx
+
+🔄 Processing ZBM: ZN001754 - R Arulkumaran
+   📊 Found 1 ABMs under this ZBM
+   ✅ Created: ZBM_Summary_ZN001754_R_Arulkumaran_20251027.xlsx
+
+🔄 Processing ZBM: ZN001781 - Navin Kumar
+   📊 Found 2 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA005259
+         Unmapped statuses: {'Return': 1}
+   ✅ Created: ZBM_Summary_ZN001781_Navin_Kumar_20251027.xlsx
+
+🔄 Processing ZBM: ZN001882 - Upendra Bahadur
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 23 unmapped requests for ABM IA000637
+         Unmapped statuses: {'Return': 23}
+      ❌ CRITICAL MISMATCH for ABM IA000637:
+         Calculated: 194, Unmapped: 23, Total: 194
+         A=1, B=0, C=193
+         D=0, E=0, F=193
+         G=169, H=1, I=23
+      ⚠️ 4 unmapped requests for ABM IA000639
+         Unmapped statuses: {'Return': 4}
+      ❌ CRITICAL MISMATCH for ABM IA000639:
+         Calculated: 17, Unmapped: 4, Total: 17
+         A=0, B=0, C=17
+         D=1, E=0, F=16
+         G=11, H=1, I=4
+      ⚠️ 1 unmapped requests for ABM IA000645
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA000645:
+         Calculated: 52, Unmapped: 1, Total: 52
+         A=2, B=0, C=50
+         D=0, E=0, F=50
+         G=44, H=5, I=1
+   ✅ Created: ZBM_Summary_ZN001882_Upendra_Bahadur_20251027.xlsx
+
+🔄 Processing ZBM: ZN001892 - Ali Naseer
+   📊 Found 2 ABMs under this ZBM
+      ⚠️ 1 unmapped requests for ABM IA005784
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA005784:
+         Calculated: 7, Unmapped: 1, Total: 7
+         A=1, B=0, C=6
+         D=0, E=0, F=6
+         G=5, H=0, I=1
+   ✅ Created: ZBM_Summary_ZN001892_Ali_Naseer_20251027.xlsx
+
+🔄 Processing ZBM: ZN001904 - CH Joseph Thambi
+   📊 Found 3 ABMs under this ZBM
+      ⚠️ 2 unmapped requests for ABM IA005212
+         Unmapped statuses: {'Return': 2}
+      ❌ CRITICAL MISMATCH for ABM IA005212:
+         Calculated: 3, Unmapped: 2, Total: 3
+         A=1, B=0, C=2
+         D=0, E=0, F=2
+         G=0, H=0, I=2
+      ⚠️ 1 unmapped requests for ABM IA005723
+         Unmapped statuses: {'Return': 1}
+      ❌ CRITICAL MISMATCH for ABM IA005723:
+         Calculated: 24, Unmapped: 1, Total: 24
+         A=0, B=0, C=24
+         D=0, E=0, F=24
+         G=23, H=0, I=1
+   ✅ Created: ZBM_Summary_ZN001904_CH_Joseph_Thambi_20251027.xlsx
+
+🎉 Successfully created 138 ZBM reports in directory: ZBM_Reports_20251027
+📊 Total ZBMs processed: 138
+⚠️ WARNING: 366 ABMs had validation errors
