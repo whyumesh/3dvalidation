@@ -19,7 +19,7 @@ def create_zbm_hierarchical_reports():
     print("🔄 Starting ZBM Hierarchical Reports Creation...")
     
     # Read master tracker data from Excel file
-    print("📖 Reading ZBM Automation Email 2410252.xlsx...")
+    print("📖 Reading Demo File 1.xlsx...")
     try:
         df = pd.read_excel('Demo File 1.xlsx')
         print(f"✅ Successfully loaded {len(df)} records")
@@ -29,8 +29,8 @@ def create_zbm_hierarchical_reports():
     
     print(f"📋 Columns in file: {list(df.columns)}")
     
-    # Clean and prepare data
-    print("🧹 Cleaning and preparing data...")
+    # Basic data preparation
+    print("🧹 Preparing data...")
     
     # Ensure required columns exist
     required_columns = ['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID',
@@ -42,34 +42,9 @@ def create_zbm_hierarchical_reports():
         print(f"❌ Missing required columns: {missing}")
         return
 
-    # **CRITICAL FIX 1**: Check for NULL/blank Request IDs
-    print(f"📊 Total rows before cleaning: {len(df)}")
-    print(f"   Rows with NULL Request IDs: {df['Assigned Request Ids'].isna().sum()}")
-    print(f"   Rows with blank Request IDs: {(df['Assigned Request Ids'].astype(str).str.strip() == '').sum()}")
-    
-    # Remove rows with NULL or blank Request IDs
-    df = df[df['Assigned Request Ids'].notna()]
-    df = df[df['Assigned Request Ids'].astype(str).str.strip() != '']
-    print(f"📊 Rows after removing NULL/blank Request IDs: {len(df)}")
-
-    # Remove rows where key fields are null or empty
-    original_len = len(df)
-    df = df.dropna(subset=['ZBM Terr Code', 'ZBM Name', 'ABM Terr Code', 'ABM Name', 'TBM HQ'])
-    df = df[df['ZBM Terr Code'].astype(str).str.strip() != '']
-    df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
-    df = df[df['TBM HQ'].astype(str).str.strip() != '']
-    print(f"📊 Rows after cleaning ZBM/ABM/TBM fields: {len(df)} (removed {original_len - len(df)})")
-
-    # **CRITICAL FIX 2**: Standardize ZBM and ABM codes/names (remove extra spaces, case issues)
-    df['ZBM Terr Code'] = df['ZBM Terr Code'].astype(str).str.strip().str.upper()
-    df['ZBM Name'] = df['ZBM Name'].astype(str).str.strip()
-    df['ABM Terr Code'] = df['ABM Terr Code'].astype(str).str.strip().str.upper()
-    df['ABM Name'] = df['ABM Name'].astype(str).str.strip()
-    df['ZBM EMAIL_ID'] = df['ZBM EMAIL_ID'].astype(str).str.strip().str.lower()
-    df['ABM EMAIL_ID'] = df['ABM EMAIL_ID'].astype(str).str.strip().str.lower()
-    
-    print(f"📊 Unique ZBM codes in raw data: {df['ZBM Terr Code'].nunique()}")
+    print(f"📊 Total rows in file: {len(df)}")
     print(f"📊 Unique Request IDs in raw data: {df['Assigned Request Ids'].nunique()}")
+    print(f"📊 Unique ZBM codes in raw data: {df['ZBM Terr Code'].nunique()}")
 
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
@@ -109,25 +84,13 @@ def create_zbm_hierarchical_reports():
         print(f"❌ Error computing final status from logic.xlsx: {e}")
         return
     
-    # **CRITICAL FIX 3**: Create deduplicated dataset at REQUEST ID + ZBM + ABM level
-    # This handles cases where same Request ID appears under multiple ZBMs or ABMs (data quality issue)
+    # Deduplicate at Request ID + ZBM + ABM level to get correct counts
     print("🔧 Deduplicating data at Request ID + ZBM + ABM level...")
     
-    # First, check if Request IDs span multiple ZBMs or ABMs (data quality check)
-    request_zbm_count = df.groupby('Assigned Request Ids')['ZBM Terr Code'].nunique()
-    multi_zbm_requests = request_zbm_count[request_zbm_count > 1]
-    if len(multi_zbm_requests) > 0:
-        print(f"⚠️ WARNING: {len(multi_zbm_requests)} Request IDs appear under multiple ZBMs!")
-        print(f"   Examples: {list(multi_zbm_requests.head().index)}")
+    # Store original data for validation
+    original_request_count = df['Assigned Request Ids'].nunique()
     
-    request_abm_count = df.groupby('Assigned Request Ids')['ABM Terr Code'].nunique()
-    multi_abm_requests = request_abm_count[request_abm_count > 1]
-    if len(multi_abm_requests) > 0:
-        print(f"⚠️ WARNING: {len(multi_abm_requests)} Request IDs appear under multiple ABMs!")
-        print(f"   Examples: {list(multi_abm_requests.head().index)}")
-    
-    # **KEY FIX**: Deduplicate at Request ID + ZBM + ABM combination level
-    # This ensures each request is counted once per ABM (which is correct for the hierarchy)
+    # Deduplicate: Each unique (Request ID + ZBM + ABM) combination should appear once
     df_dedup = df.groupby(['Assigned Request Ids', 'ZBM Terr Code', 'ABM Terr Code']).agg({
         'ZBM Name': 'first',
         'ZBM EMAIL_ID': 'first',
@@ -142,27 +105,7 @@ def create_zbm_hierarchical_reports():
     }).reset_index()
     
     print(f"📊 Deduplicated from {len(df)} rows to {len(df_dedup)} unique (Request ID + ZBM + ABM) combinations")
-    
-    # **CRITICAL FIX 4**: Get unique ZBMs correctly with proper email handling
-    # Handle cases where same ZBM code has multiple emails or names (data quality)
-    zbm_check = df_dedup.groupby('ZBM Terr Code').agg({
-        'ZBM Name': 'nunique',
-        'ZBM EMAIL_ID': 'nunique'
-    })
-    zbm_multi_name = zbm_check[zbm_check['ZBM Name'] > 1]
-    zbm_multi_email = zbm_check[zbm_check['ZBM EMAIL_ID'] > 1]
-    
-    if len(zbm_multi_name) > 0:
-        print(f"⚠️ WARNING: {len(zbm_multi_name)} ZBM codes have multiple names!")
-        for zbm_code in zbm_multi_name.index[:5]:
-            names = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code]['ZBM Name'].unique()
-            print(f"   {zbm_code}: {names}")
-    
-    if len(zbm_multi_email) > 0:
-        print(f"⚠️ WARNING: {len(zbm_multi_email)} ZBM codes have multiple emails!")
-        for zbm_code in zbm_multi_email.index[:5]:
-            emails = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code]['ZBM EMAIL_ID'].unique()
-            print(f"   {zbm_code}: {emails}")
+    print(f"📊 Unique Request IDs after dedup: {df_dedup['Assigned Request Ids'].nunique()}")
     
     # Get unique ZBMs using mode (most frequent) for name/email
     zbms = df_dedup.groupby('ZBM Terr Code').agg({
@@ -170,15 +113,11 @@ def create_zbm_hierarchical_reports():
         'ZBM EMAIL_ID': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0]
     }).reset_index().sort_values('ZBM Terr Code')
     
-    print(f"📋 Found {len(zbms)} unique ZBMs (expected 140)")
+    print(f"📋 Found {len(zbms)} unique ZBMs")
     
-    if len(zbms) != 140:
-        print(f"⚠️ WARNING: Expected 140 ZBMs but found {len(zbms)}!")
-        print(f"   Difference: {len(zbms) - 140}")
-    
-    # Debug: Show all ZBMs and their ABMs
-    print("\n🔍 ZBM-ABM Mapping (first 10):")
-    for idx, (_, zbm_row) in enumerate(zbms.head(10).iterrows()):
+    # Debug: Show first few ZBMs and their ABMs
+    print("\n🔍 ZBM-ABM Mapping (first 5):")
+    for idx, (_, zbm_row) in enumerate(zbms.head(5).iterrows()):
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
         zbm_data_temp = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code]
@@ -194,6 +133,8 @@ def create_zbm_hierarchical_reports():
     
     # Process each ZBM
     file_count = 0
+    total_validation_errors = 0
+    
     for _, zbm_row in zbms.iterrows():
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
@@ -228,34 +169,40 @@ def create_zbm_hierarchical_reports():
             tbm_hq = abm_row['TBM HQ']
             
             # Filter data for this specific ABM (using deduplicated data)
-            abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)].copy()
+            abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & 
+                               (zbm_data['ABM Name'] == abm_name)].copy()
             
-            # Calculate metrics for this ABM using ORIGINAL df for TBM and HCP counts
-            abm_original = df[(df['ZBM Terr Code'] == zbm_code) & 
-                             (df['ABM Terr Code'] == abm_code) & 
-                             (df['ABM Name'] == abm_name)]
-            unique_tbms = abm_original['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_original.columns else 0
-            unique_hcps = abm_original['Doctor: Customer Code'].nunique()
-            
-            # All request counts use deduplicated data
+            # Calculate all metrics using deduplicated data
+            unique_tbms = abm_data['TBM EMAIL_ID'].nunique()
+            unique_hcps = abm_data['Doctor: Customer Code'].nunique()
             unique_requests = len(abm_data)
             
             # HO Section (A + B) - Count requests by Final Answer
-            request_cancelled_out_of_stock = len(abm_data[abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])])
-            action_pending_at_ho = len(abm_data[abm_data['Final Answer'].isin(['Request Raised', 'Action pending / In Process At HO'])])
+            ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
+            request_cancelled_out_of_stock = len(abm_data[abm_data['Final Answer'].isin(ho_statuses)])
+            
+            pending_statuses = ['Request Raised', 'Action pending / In Process At HO']
+            action_pending_at_ho = len(abm_data[abm_data['Final Answer'].isin(pending_statuses)])
             
             # HUB Section (D + E)
-            pending_for_invoicing = len(abm_data[abm_data['Final Answer'].isin(['Action pending / In Process At Hub'])])
-            pending_for_dispatch = len(abm_data[abm_data['Final Answer'].isin(['Dispatch  Pending'])])
+            hub_pending_statuses = ['Action pending / In Process At Hub']
+            pending_for_invoicing = len(abm_data[abm_data['Final Answer'].isin(hub_pending_statuses)])
+            
+            dispatch_pending_statuses = ['Dispatch  Pending']
+            pending_for_dispatch = len(abm_data[abm_data['Final Answer'].isin(dispatch_pending_statuses)])
             
             # Delivery Status (G + H)
-            delivered = len(abm_data[abm_data['Final Answer'].isin(['Delivered'])])
-            dispatched_in_transit = len(abm_data[abm_data['Final Answer'].isin(['Dispatched & In Transit'])])
+            delivered_statuses = ['Delivered']
+            delivered = len(abm_data[abm_data['Final Answer'].isin(delivered_statuses)])
             
-            # RTO Reasons - Count requests with RTO reasons
-            incomplete_address = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Incomplete Address', na=False, case=False)])
-            doctor_non_contactable = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Dr. Non contactable', na=False, case=False)])
-            doctor_refused_to_accept = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Doctor Refused to Accept', na=False, case=False)])
+            transit_statuses = ['Dispatched & In Transit']
+            dispatched_in_transit = len(abm_data[abm_data['Final Answer'].isin(transit_statuses)])
+            
+            # RTO Reasons - Count requests with RTO reasons (more robust matching)
+            rto_col = abm_data['Rto Reason'].astype(str).str.strip().str.lower()
+            incomplete_address = (rto_col.str.contains('incomplete address', na=False, regex=False)).sum()
+            doctor_non_contactable = (rto_col.str.contains('non contactable', na=False, regex=False)).sum()
+            doctor_refused_to_accept = (rto_col.str.contains('refused to accept', na=False, regex=False)).sum()
             
             # Calculate RTO as sum of RTO reasons
             rto_total = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
@@ -263,24 +210,30 @@ def create_zbm_hierarchical_reports():
             # Calculated fields using formulas
             requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
             sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched  # C = D + E + F
-            requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # Total = A + B + C
+            requests_raised_calc = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # Total = A + B + C
             hold_delivery = 0
             
+            # Check for unmapped requests
+            all_mapped_statuses = ho_statuses + pending_statuses + hub_pending_statuses + dispatch_pending_statuses + delivered_statuses + transit_statuses
+            mapped = abm_data['Final Answer'].isin(all_mapped_statuses)
+            unmapped_count = (~mapped).sum()
+            
+            if unmapped_count > 0:
+                print(f"      ⚠️ {unmapped_count} unmapped requests for ABM {abm_code}")
+                unmapped_statuses = abm_data[~mapped]['Final Answer'].value_counts().to_dict()
+                print(f"         Unmapped statuses: {unmapped_statuses}")
+            
             # Verify tally
-            if requests_raised != unique_requests:
-                print(f"      ⚠️ TALLY MISMATCH for {abm_code}: Calculated={requests_raised}, Actual={unique_requests}")
+            if requests_raised_calc + unmapped_count != unique_requests:
+                print(f"      ❌ CRITICAL MISMATCH for ABM {abm_code}:")
+                print(f"         Calculated: {requests_raised_calc}, Unmapped: {unmapped_count}, Total: {unique_requests}")
                 print(f"         A={request_cancelled_out_of_stock}, B={action_pending_at_ho}, C={sent_to_hub}")
                 print(f"         D={pending_for_invoicing}, E={pending_for_dispatch}, F={requests_dispatched}")
                 print(f"         G={delivered}, H={dispatched_in_transit}, I={rto_total}")
-                
-                # Show which requests don't have matching Final Answer
-                all_counted = (abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted',
-                                                               'Request Raised', 'Action pending / In Process At HO',
-                                                               'Action pending / In Process At Hub', 'Dispatch  Pending',
-                                                               'Delivered', 'Dispatched & In Transit']))
-                uncounted = abm_data[~all_counted]
-                if len(uncounted) > 0:
-                    print(f"         Uncounted Final Answers: {uncounted['Final Answer'].unique()}")
+                total_validation_errors += 1
+            
+            # Use actual unique request count (not calculated) to ensure accuracy
+            requests_raised = unique_requests
             
             # Create Area Name
             if 'ABM HQ' in abm_row and pd.notna(abm_row['ABM HQ']):
@@ -313,14 +266,24 @@ def create_zbm_hierarchical_reports():
         # Create DataFrame for this ZBM
         zbm_summary_df = pd.DataFrame(summary_data)
         
+        # Validate ZBM total
+        zbm_total_requests = zbm_data['Assigned Request Ids'].nunique()
+        zbm_summary_total = zbm_summary_df['Requests Raised'].sum()
+        
+        if zbm_total_requests != zbm_summary_total:
+            print(f"   ⚠️ WARNING: ZBM {zbm_code} total mismatch!")
+            print(f"      Actual unique requests: {zbm_total_requests}")
+            print(f"      Summary total: {zbm_summary_total}")
+            print(f"      Difference: {zbm_summary_total - zbm_total_requests}")
+        
         # Create Excel file for this ZBM
         create_zbm_excel_report(zbm_code, zbm_name, zbm_email, zbm_summary_df, output_dir)
         file_count += 1
     
     print(f"\n🎉 Successfully created {file_count} ZBM reports in directory: {output_dir}")
-    print(f"📊 Expected 140 ZBMs, created {file_count} files")
-    if file_count != 140:
-        print(f"⚠️ WARNING: File count mismatch! Difference: {file_count - 140}")
+    print(f"📊 Total ZBMs processed: {file_count}")
+    if total_validation_errors > 0:
+        print(f"⚠️ WARNING: {total_validation_errors} ABMs had validation errors")
 
 def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_dir):
     """Create Excel report for a specific ZBM with perfect formatting"""
@@ -451,7 +414,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
                     except:
                         pass
 
-        # Add total row
+        # # Add total row
         total_row = data_start_row + len(summary_df)
         copy_row_style(template_data_row, total_row)
         
