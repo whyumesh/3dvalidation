@@ -208,13 +208,14 @@ def create_zbm_hierarchical_reports():
             dispatched_in_transit = (abm_data['Final Answer'].isin(transit_statuses)).sum()
             
             # === SECTION I: RTO (Return to Origin) ===
-            # RTO Calculation with Priority-Based Assignment
-            # Each request counted only once under the highest priority reason
-            # Priority Order: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
+            # RTO Calculation - ONLY count requests with "Return" Final Answer
+            # Priority-Based Reason Assignment: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
             
+            # ONLY count requests with "Return" Final Answer as RTO
             has_return_status = abm_data['Final Answer'] == 'Return'
+            rto_total = has_return_status.sum()
             
-            # RTO Reasons - Check Rto Reason column
+            # RTO Reasons - Check Rto Reason column (only for Return requests)
             rto_col = abm_data['Rto Reason'].astype(str).str.strip().str.lower()
             has_incomplete_address = rto_col.str.contains('incomplete address', na=False, regex=False)
             has_refused_to_accept = rto_col.str.contains('refused to accept', na=False, regex=False)
@@ -223,15 +224,11 @@ def create_zbm_hierarchical_reports():
             # Any RTO reason present
             has_any_rto_reason = has_incomplete_address | has_non_contactable | has_refused_to_accept
             
-            # Total RTO: Requests with "Return" status OR any RTO reason (avoid double counting)
-            is_rto = has_return_status | has_any_rto_reason
-            rto_total = is_rto.sum()
-            
             # Assign each RTO request to ONE category based on priority
-            # Only count RTO requests (those identified above)
-            incomplete_address = (is_rto & has_incomplete_address).sum()
-            doctor_refused_to_accept = (is_rto & ~has_incomplete_address & has_refused_to_accept).sum()
-            doctor_non_contactable = (is_rto & ~has_incomplete_address & ~has_refused_to_accept & has_non_contactable).sum()
+            # Only count requests that have Return status
+            incomplete_address = (has_return_status & has_incomplete_address).sum()
+            doctor_refused_to_accept = (has_return_status & ~has_incomplete_address & has_refused_to_accept).sum()
+            doctor_non_contactable = (has_return_status & ~has_incomplete_address & ~has_non_contactable & has_refused_to_accept).sum()
             
             # Handle Return status without RTO reason - add to Non Contactable as catch-all
             return_no_reason = (has_return_status & ~has_any_rto_reason).sum()
@@ -369,9 +366,8 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         
         data_start_row = header_row + 1
         
-        #  
         # Read actual column positions from template header row
-        column_mapping = {}
+         column_mapping = {}
         for col_idx in range(1, min(30, ws.max_column + 1)):
             header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
