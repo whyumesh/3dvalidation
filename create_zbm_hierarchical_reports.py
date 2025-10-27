@@ -49,11 +49,6 @@ def create_zbm_hierarchical_reports():
     df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
     df = df[df['TBM HQ'].astype(str).str.strip() != '']
 
-    # Filter for ZBM codes that start with "ZN" (only restriction needed)
-    # df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    # print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
-    # print(f"📊 Processing all ZBM codes starting with 'ZN' - no geographic restrictions")
-
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
     try:
@@ -79,19 +74,36 @@ def create_zbm_hierarchical_reports():
         grouped['Request Status'] = grouped['Request Status'].apply(lambda lst: sorted(set(lst), key=str))
         grouped['Final Answer'] = grouped['Request Status'].apply(get_final_answer)
 
-        def has_action_pending(status_list):
-            target = 'action pending / in process'
-            return any(normalize(s) == target for s in status_list)
-        grouped['Has D Pending'] = grouped['Request Status'].apply(has_action_pending)
-
         # Merge Final Answer back to main dataframe
-        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer', 'Has D Pending']], on='Assigned Request Ids', how='left')
+        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer']], on='Assigned Request Ids', how='left')
     except Exception as e:
         print(f"❌ Error computing final status from logic.xlsx: {e}")
         return
     
+    # **KEY FIX**: Create a deduplicated dataset at REQUEST ID level for counting
+    # This ensures each request is counted exactly once
+    print("🔧 Deduplicating data at Request ID level for accurate counting...")
+    
+    # For each unique Request ID, keep only one row with the computed Final Answer
+    df_dedup = df.groupby('Assigned Request Ids').agg({
+        'ZBM Terr Code': 'first',
+        'ZBM Name': 'first',
+        'ZBM EMAIL_ID': 'first',
+        'ABM Terr Code': 'first',
+        'ABM Name': 'first',
+        'ABM EMAIL_ID': 'first',
+        'TBM HQ': 'first',
+        'TBM EMAIL_ID': 'first',
+        'Doctor: Customer Code': 'first',
+        'Final Answer': 'first',
+        'Rto Reason': 'first',
+        'ABM HQ': 'first' if 'ABM HQ' in df.columns else lambda x: None
+    }).reset_index()
+    
+    print(f"📊 Deduplicated from {len(df)} rows to {len(df_dedup)} unique requests")
+    
     # Get unique ZBMs
-    zbms = df[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
+    zbms = df_dedup[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
     print(f"📋 Found {len(zbms)} unique ZBMs")
     
     # Debug: Show all ZBMs and their ABMs
@@ -99,7 +111,7 @@ def create_zbm_hierarchical_reports():
     for _, zbm_row in zbms.iterrows():
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
-        zbm_data_temp = df[df['ZBM Terr Code'] == zbm_code]
+        zbm_data_temp = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code]
         abms_temp = zbm_data_temp[['ABM Terr Code', 'ABM Name']].drop_duplicates()
         print(f"   {zbm_code} ({zbm_name}): {len(abms_temp)} ABMs")
         for _, abm_row in abms_temp.iterrows():
@@ -119,8 +131,8 @@ def create_zbm_hierarchical_reports():
         
         print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name}")
         
-        # Filter data for this ZBM
-        zbm_data = df[df['ZBM Terr Code'] == zbm_code].copy()
+        # Filter data for this ZBM (using deduplicated data)
+        zbm_data = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code].copy()
         
         if len(zbm_data) == 0:
             print(f"⚠️ No data found for ZBM: {zbm_code}")
@@ -145,43 +157,44 @@ def create_zbm_hierarchical_reports():
             abm_email = abm_row['ABM EMAIL_ID']
             tbm_hq = abm_row['TBM HQ']
             
-            # Filter data for this specific ABM
-            abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)]
+            # Filter data for this specific ABM (using deduplicated data)
+            abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & (zbm_data['ABM Name'] == abm_name)].copy()
             
-            print(f"      Processing {abm_name} ({abm_code}): {len(abm_data)} records")
+            print(f"      Processing {abm_name} ({abm_code}): {len(abm_data)} unique requests")
             
-            # Calculate metrics for this ABM
-            unique_tbms = abm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_data.columns else 0
-            unique_hcps = abm_data['Doctor: Customer Code'].nunique()
-            unique_requests = abm_data['Assigned Request Ids'].nunique()
+            # Calculate metrics for this ABM using ORIGINAL df for TBM and HCP counts
+            # (because we need to count unique TBMs and HCPs across all rows, not just unique requests)
+            abm_original = df[(df['ABM Terr Code'] == abm_code) & (df['ABM Name'] == abm_name)]
+            unique_tbms = abm_original['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in abm_original.columns else 0
+            unique_hcps = abm_original['Doctor: Customer Code'].nunique()
             
-            # HO Section (A + B) - Using Final Answer instead of Request Status
-            # Count unique request IDs for each status category
-            request_cancelled_out_of_stock = abm_data[abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-            action_pending_at_ho = abm_data[abm_data['Final Answer'].isin(['Request Raised', 'Action pending / In Process At HO'])]['Assigned Request Ids'].nunique()
+            # All other counts use deduplicated data (one count per unique request)
+            unique_requests = len(abm_data)
             
-            # HUB Section (D + E) - Using Final Answer instead of Request Status
-            pending_for_invoicing = abm_data[abm_data['Final Answer'].isin(['Action pending / In Process At Hub'])]['Assigned Request Ids'].nunique()
-            pending_for_dispatch = abm_data[abm_data['Final Answer'].isin(['Dispatch  Pending'])]['Assigned Request Ids'].nunique()
+            # HO Section (A + B) - Count requests by Final Answer
+            request_cancelled_out_of_stock = len(abm_data[abm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])])
+            action_pending_at_ho = len(abm_data[abm_data['Final Answer'].isin(['Request Raised', 'Action pending / In Process At HO'])])
             
-            # Delivery Status (G + H) - Using Final Answer instead of Request Status
-            delivered = abm_data[abm_data['Final Answer'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
-            dispatched_in_transit = abm_data[abm_data['Final Answer'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
+            # HUB Section (D + E)
+            pending_for_invoicing = len(abm_data[abm_data['Final Answer'].isin(['Action pending / In Process At Hub'])])
+            pending_for_dispatch = len(abm_data[abm_data['Final Answer'].isin(['Dispatch  Pending'])])
             
-            # RTO Reasons - Calculate FIRST before using in formulas
-            # Note: RTO reasons are based on Rto Reason field, not Final Answer
-            # Count unique request IDs for each RTO reason
-            incomplete_address = abm_data[abm_data['Rto Reason'].str.contains('Incomplete Address', na=False, case=False)]['Assigned Request Ids'].nunique()
-            doctor_non_contactable = abm_data[abm_data['Rto Reason'].str.contains('Dr. Non contactable', na=False, case=False)]['Assigned Request Ids'].nunique()
-            doctor_refused_to_accept = abm_data[abm_data['Rto Reason'].str.contains('Doctor Refused to Accept', na=False, case=False)]['Assigned Request Ids'].nunique()
+            # Delivery Status (G + H)
+            delivered = len(abm_data[abm_data['Final Answer'].isin(['Delivered'])])
+            dispatched_in_transit = len(abm_data[abm_data['Final Answer'].isin(['Dispatched & In Transit'])])
+            
+            # RTO Reasons - Count requests with RTO reasons
+            incomplete_address = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Incomplete Address', na=False, case=False)])
+            doctor_non_contactable = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Dr. Non contactable', na=False, case=False)])
+            doctor_refused_to_accept = len(abm_data[abm_data['Rto Reason'].astype(str).str.contains('Doctor Refused to Accept', na=False, case=False)])
             
             # Calculate RTO as sum of RTO reasons
             rto_total = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
             
-            # Calculated fields using the RTO total
+            # Calculated fields using formulas
             requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
             sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched  # C = D + E + F
-            requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # A + B + C
+            requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # Total = A + B + C
             hold_delivery = 0
             
             # Create Area Name
@@ -205,7 +218,7 @@ def create_zbm_hierarchical_reports():
                 'Requests Dispatched': requests_dispatched,
                 'Delivered': delivered,
                 'Dispatched In Transit': dispatched_in_transit,
-                'RTO': rto_total,  # Use rto_total instead of rto
+                'RTO': rto_total,
                 'Incomplete Address': incomplete_address,
                 'Doctor Non Contactable': doctor_non_contactable,
                 'Doctor Refused to Accept': doctor_refused_to_accept,
@@ -308,28 +321,6 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         
         print(f"   ℹ️ Detected {len(column_mapping)} columns: {list(column_mapping.keys())}")
         
-        # Verify we have the essential columns
-        essential_cols = ['Area Name', 'ABM Name', 'Unique TBMs', 'Unique HCPs', 'Requests Raised']
-        missing_essential = [col for col in essential_cols if col not in column_mapping]
-        if missing_essential:
-            print(f"   ⚠️ WARNING: Missing essential columns in template: {missing_essential}")
-        
-        # Print summary_df to verify data exists
-        print(f"   ℹ️ Summary DataFrame shape: {summary_df.shape}")
-        print(f"   ℹ️ Summary DataFrame columns: {list(summary_df.columns)}")
-        if len(summary_df) > 0:
-            print(f"   ℹ️ First row sample: Area={summary_df.iloc[0]['Area Name']}, ABM={summary_df.iloc[0]['ABM Name']}, TBMs={summary_df.iloc[0]['Unique TBMs']}")
-        else:
-            print(f"   ⚠️ WARNING: Summary DataFrame is empty!")
-            return
-        
-        # Debug: Print all headers with their values from template
-        print(f"   🔍 Template headers found:")
-        for col_idx in range(1, min(30, ws.max_column + 1)):
-            val = get_cell_value_handling_merged(header_row, col_idx)
-            if val:
-                print(f"      Column {col_idx}: '{val}'")
-        
         # Clear existing data rows (preserve header)
         max_clear_rows = max(len(summary_df) + 10, 50)
         for r in range(data_start_row, data_start_row + max_clear_rows):
@@ -370,11 +361,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             # Write data to mapped columns
             for col_name, col_idx in column_mapping.items():
                 if col_name in summary_df.columns:
-                    value = summary_df.iloc[i][col_name]  # Use iloc for safer access
-                    
-                    # Debug print for first row
-                    if i == 0:
-                        print(f"      Writing '{col_name}' = {value} to column {col_idx}")
+                    value = summary_df.iloc[i][col_name]
                     
                     try:
                         cell = ws.cell(row=target_row, column=col_idx)
@@ -403,9 +390,7 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
         # Calculate and write totals
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns and col_name not in ['Area Name', 'ABM Name']:
-                total_value = int(summary_df[col_name].sum())  # Ensure it's an integer
-                
-                print(f"      Writing Total '{col_name}' = {total_value} to column {col_idx}")
+                total_value = int(summary_df[col_name].sum())
                 
                 try:
                     cell = ws.cell(row=total_row, column=col_idx)
