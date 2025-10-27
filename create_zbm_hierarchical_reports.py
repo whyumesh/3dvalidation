@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 def create_zbm_hierarchical_reports():
     """
     Create hierarchical ZBM reports optimized for clean data files.
-    Assumes input data is already clean and properly formatted.
+    Ensures exactly ONE report per unique ZBM Terr Code.
     """
 
     print("🔄 Starting ZBM Hierarchical Reports Creation...")
@@ -128,11 +128,15 @@ def create_zbm_hierarchical_reports():
 
     print(f"📊 Deduplicated from {len(df)} → {len(df_dedup)} unique requests")
 
-    # --- Build ZBM list ---
+    # --- Build ZBM list (ONE entry per unique ZBM Terr Code) ---
+    print("🔍 Identifying unique ZBM Terr Codes...")
+    
     zbms = df_dedup.groupby('ZBM Terr Code').agg({
-        'ZBM Name': 'first',
-        'ZBM EMAIL_ID': 'first'
+        'ZBM Name': lambda x: x.value_counts().index[0] if len(x) > 0 else x.iloc[0],  # Most common name
+        'ZBM EMAIL_ID': lambda x: x.value_counts().index[0] if len(x) > 0 else x.iloc[0]  # Most common email
     }).reset_index().sort_values('ZBM Terr Code')
+
+    print(f"📊 Found {len(zbms)} unique ZBM Terr Codes")
 
     timestamp = datetime.now().strftime("%Y%m%d")
     output_dir = f"ZBM_Reports_{timestamp}"
@@ -140,14 +144,17 @@ def create_zbm_hierarchical_reports():
 
     print(f"📁 Output directory: {output_dir}")
 
-    # --- ZBM Processing Loop ---
-    for _, zbm_row in zbms.iterrows():
+    # Track files created
+    files_created = []
+
+    # --- ZBM Processing Loop (ONE file per ZBM Terr Code) ---
+    for idx, zbm_row in zbms.iterrows():
         zbm_code = zbm_row['ZBM Terr Code']
         zbm_name = zbm_row['ZBM Name']
         zbm_email = zbm_row['ZBM EMAIL_ID']
         zbm_data = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code].copy()
 
-        print(f"\n🔄 Processing ZBM: {zbm_code} - {zbm_name} ({len(zbm_data)} requests)")
+        print(f"\n🔄 [{idx+1}/{len(zbms)}] Processing ZBM: {zbm_code} - {zbm_name} ({len(zbm_data)} requests)")
 
         abms = zbm_data[['ABM Terr Code', 'ABM Name']].drop_duplicates().sort_values('ABM Terr Code')
         summary_data = []
@@ -204,13 +211,6 @@ def create_zbm_hierarchical_reports():
             if total != unique_requests:
                 print(f"⚠️ Tally mismatch for {abm_code}: calculated={total}, actual={unique_requests}")
                 print(f"   A={a}, B={b}, C={c}, D={d}, E={e}, F={f}, G={g}, H={h}, I={i}")
-                
-                # Debug export for mismatches
-                debug_file = os.path.join(output_dir, f"debug_{zbm_code}_{abm_code}.csv")
-                abm_data[['Assigned Request Ids', 'Final Answer', 'Request Status', 'Rto Reason']].to_csv(
-                    debug_file, index=False
-                )
-                print(f"   📝 Debug file saved: {debug_file}")
 
             summary_data.append({
                 'Area Name': abm_code,
@@ -232,13 +232,19 @@ def create_zbm_hierarchical_reports():
             })
 
         zbm_summary_df = pd.DataFrame(summary_data)
-        create_zbm_excel_report(zbm_code, zbm_name, zbm_email, zbm_summary_df, output_dir, template_file)
+        filename = create_zbm_excel_report(zbm_code, zbm_name, zbm_email, zbm_summary_df, output_dir, template_file)
+        if filename:
+            files_created.append(filename)
 
-    print("\n🎉 All ZBM reports created successfully!")
+    print(f"\n{'='*60}")
+    print(f"🎉 Successfully created {len(files_created)} ZBM reports!")
+    print(f"📊 Unique ZBM Terr Codes: {len(zbms)}")
+    print(f"📁 Output directory: {output_dir}")
+    print(f"{'='*60}")
 
 
 def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_dir, template_file):
-    """Writes Excel report using template formatting."""
+    """Writes Excel report using template formatting. Returns filename if successful."""
     try:
         wb = load_workbook(template_file)
         ws = wb['ZBM']
@@ -281,16 +287,19 @@ def create_zbm_excel_report(zbm_code, zbm_name, zbm_email, summary_df, output_di
             cell.value = int(summary_df.iloc[:, j - 1].sum())
             cell.font = Font(bold=True)
 
-        # Save file
-        fname = f"ZBM_Summary_{zbm_code}_{zbm_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        # Save file with sanitized ZBM name
+        sanitized_name = zbm_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+        fname = f"ZBM_Summary_{zbm_code}_{sanitized_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         output_path = os.path.join(output_dir, fname)
         wb.save(output_path)
-        print(f"✅ Created {fname}")
+        print(f"✅ Created: {fname}")
+        return fname
 
     except Exception as e:
         print(f"❌ Error creating Excel for {zbm_code}: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 
 if __name__ == "__main__":
