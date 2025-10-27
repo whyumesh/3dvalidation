@@ -21,7 +21,7 @@ def create_zbm_hierarchical_reports():
     # Read master tracker data from Excel file
     print("📖 Reading Sample Master Tracker.xlsx...")
     try:
-        df = pd.read_excel('Sample Master Tracker.xlsx')
+        df = pd.read_excel('ZBM Automation Email 2410252.xlsx')
         print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
     except Exception as e:
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
@@ -50,9 +50,9 @@ def create_zbm_hierarchical_reports():
     df = df[df['TBM HQ'].astype(str).str.strip() != '']
 
     # Filter for ZBM codes that start with "ZN" (only restriction needed)
-    df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
-    print(f"📊 Processing all ZBM codes starting with 'ZN' - no geographic restrictions")
+    # df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
+    # print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
+    # print(f"📊 Processing all ZBM codes starting with 'ZN' - no geographic restrictions")
 
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
