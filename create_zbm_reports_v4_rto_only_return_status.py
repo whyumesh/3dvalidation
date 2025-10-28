@@ -179,7 +179,7 @@ def create_zbm_hierarchical_reports():
                                (zbm_data['ABM Name'] == abm_name)].copy()
             
             # Calculate all metrics using deduplicated data
-            unique_tbms = abm_data['TBM EMAIL_ID'].nunique()
+            unique_tbms = abm_data['Input Sample Request: Created By'].nunique()
             unique_hcps = abm_data['Doctor: Customer Code'].nunique()
             unique_requests = len(abm_data)
             
