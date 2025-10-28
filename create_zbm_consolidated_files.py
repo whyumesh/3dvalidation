@@ -20,7 +20,7 @@ def create_zbm_consolidated_files():
     # Read Sample Master Tracker data
     print("📖 Reading Sample Master Tracker.xlsx...")
     try:
-        df = pd.read_excel('Sample Master Tracker.xlsx')
+        df = pd.read_excel('ZBM Automation Email 2410252.xlsx')
         print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
     except Exception as e:
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
@@ -65,9 +65,13 @@ def create_zbm_consolidated_files():
     df = df[df['ZBM Terr Code'].astype(str).str.strip() != '']
     df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
     
+    # Standardize ZBM data to prevent duplicates
+    df['ZBM Terr Code'] = df['ZBM Terr Code'].astype(str).str.strip()
+    df['ZBM Name'] = df['ZBM Name'].astype(str).str.strip()
+    
     # Filter for ZBM codes that start with "ZN"
-    df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
+    # df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
+    # print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
     
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
@@ -112,9 +116,38 @@ def create_zbm_consolidated_files():
         # If logic file fails, use Request Status as Final Status
         df['Final Status'] = df['Request Status']
     
-    # Get unique ZBMs
-    zbms = df[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
-    print(f"📋 Found {len(zbms)} unique ZBMs")
+    # First, let's see how many unique ZBM Terr Codes exist
+    unique_zbm_codes = df['ZBM Terr Code'].unique()
+    print(f"📋 Found {len(unique_zbm_codes)} unique ZBM Terr Codes")
+    
+    # Now let's check if same ZBM Terr Code has different ZBM Names
+    zbm_code_name_check = df.groupby('ZBM Terr Code')['ZBM Name'].nunique()
+    duplicates = zbm_code_name_check[zbm_code_name_check > 1]
+    
+    if len(duplicates) > 0:
+        print(f"⚠️ WARNING: Found {len(duplicates)} ZBM Terr Codes with multiple ZBM Names:")
+        for zbm_code in duplicates.index:
+            names = df[df['ZBM Terr Code'] == zbm_code]['ZBM Name'].unique()
+            print(f"   {zbm_code} has {len(names)} different names:")
+            for name in names:
+                count = len(df[(df['ZBM Terr Code'] == zbm_code) & (df['ZBM Name'] == name)])
+                print(f"      - '{name}' ({count} records)")
+    
+    # Get unique ZBMs - Use ONLY ZBM Terr Code for uniqueness
+    zbm_groups = df.groupby('ZBM Terr Code').agg({
+        'ZBM Name': 'first',  # Take the first name (you could also use 'last' or mode)
+        'ZBM EMAIL_ID': lambda x: x.dropna().iloc[0] if len(x.dropna()) > 0 else None
+    }).reset_index()
+    
+    zbms = zbm_groups.sort_values('ZBM Terr Code')
+    
+    print(f"\n📋 Creating {len(zbms)} consolidated files (one per unique ZBM Terr Code)")
+    
+    # Debug: Show ZBM list
+    print(f"🔍 Unique ZBMs to be processed:")
+    for _, zbm in zbms.iterrows():
+        zbm_count = len(df[df['ZBM Terr Code'] == zbm['ZBM Terr Code']])
+        print(f"   {zbm['ZBM Terr Code']} - {zbm['ZBM Name']} ({zbm_count} records)")
     
     # Create output directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
