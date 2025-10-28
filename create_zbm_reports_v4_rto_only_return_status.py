@@ -32,11 +32,28 @@ def create_zbm_hierarchical_reports():
     # Basic data preparation
     print("🧹 Preparing data...")
     
+    # Find the correct column name for TBM/Created By
+    tbm_created_by_col = None
+    for col in df.columns:
+        if 'created by' in col.lower() or 'created_by' in col.lower():
+            tbm_created_by_col = col
+            print(f"✅ Found TBM Created By column: '{col}'")
+            break
+    
+    if tbm_created_by_col is None:
+        print("⚠️ Warning: Could not find 'Created By' column, will use 'TBM EMAIL_ID' instead")
+        tbm_created_by_col = 'TBM EMAIL_ID'
+    
     # Ensure required columns exist
     required_columns = ['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID',
                         'ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID',
                         'TBM HQ', 'TBM EMAIL_ID',
                         'Doctor: Customer Code', 'Assigned Request Ids', 'Request Status', 'Rto Reason']
+    
+    # Add the TBM created by column if it's different from TBM EMAIL_ID
+    if tbm_created_by_col != 'TBM EMAIL_ID' and tbm_created_by_col not in required_columns:
+        required_columns.append(tbm_created_by_col)
+    
     missing = [c for c in required_columns if c not in df.columns]
     if missing:
         print(f"❌ Missing required columns: {missing}")
@@ -91,7 +108,7 @@ def create_zbm_hierarchical_reports():
     original_request_count = df['Assigned Request Ids'].nunique()
     
     # Deduplicate: Each unique (Request ID + ZBM + ABM) combination should appear once
-    df_dedup = df.groupby(['Assigned Request Ids', 'ZBM Terr Code', 'ABM Terr Code']).agg({
+    agg_dict = {
         'ZBM Name': 'first',
         'ZBM EMAIL_ID': 'first',
         'ABM Name': 'first',
@@ -101,8 +118,17 @@ def create_zbm_hierarchical_reports():
         'Doctor: Customer Code': 'first',
         'Final Answer': 'first',
         'Rto Reason': 'first',
-        'ABM HQ': 'first' if 'ABM HQ' in df.columns else lambda x: None
-    }).reset_index()
+    }
+    
+    # Add TBM created by column if it exists and is different
+    if tbm_created_by_col and tbm_created_by_col != 'TBM EMAIL_ID':
+        agg_dict[tbm_created_by_col] = 'first'
+    
+    # Add ABM HQ if it exists
+    if 'ABM HQ' in df.columns:
+        agg_dict['ABM HQ'] = 'first'
+    
+    df_dedup = df.groupby(['Assigned Request Ids', 'ZBM Terr Code', 'ABM Terr Code']).agg(agg_dict).reset_index()
     
     print(f"📊 Deduplicated from {len(df)} rows to {len(df_dedup)} unique (Request ID + ZBM + ABM) combinations")
     print(f"📊 Unique Request IDs after dedup: {df_dedup['Assigned Request Ids'].nunique()}")
@@ -179,7 +205,8 @@ def create_zbm_hierarchical_reports():
                                (zbm_data['ABM Name'] == abm_name)].copy()
             
             # Calculate all metrics using deduplicated data
-            unique_tbms = abm_data['Input Sample Request: Created By'].nunique()
+            # Use the dynamically found TBM created by column
+            unique_tbms = abm_data[tbm_created_by_col].nunique()
             unique_hcps = abm_data['Doctor: Customer Code'].nunique()
             unique_requests = len(abm_data)
             
@@ -214,44 +241,43 @@ def create_zbm_hierarchical_reports():
             dispatched_in_transit = (abm_data['Final Answer'].isin(transit_statuses)).sum()
             
             # === SECTION I: RTO (Return to Origin) ===
-            # RTO Calculation - ONLY count requests with "Return" Final Answer
-            # Each Request ID must be counted in ONLY ONE RTO category based on priority
-            
-            # ONLY count requests with "Return" Final Answer as RTO
+            # RTO Total: ONLY count requests with "Return" Final Answer
             has_return_status = abm_data['Final Answer'] == 'Return'
             rto_total = has_return_status.sum()
             
-            # For each Return request, determine which RTO reason to assign based on priority
-            # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
+            # RTO Reasons: Count based on unique Request IDs that have RTO reasons
+            # INDEPENDENT of Final Answer status - based on Rto Reason column only
+            # Each unique Request ID is counted in ONLY ONE category based on priority
             
-            # Get only the Return requests for this ABM
-            rto_requests = abm_data[has_return_status].copy()
+            # Get unique Request IDs for this ABM (regardless of Final Answer)
+            unique_request_ids = abm_data['Assigned Request Ids'].unique()
             
-            # Check RTO reasons in the Rto Reason column for each request
-            rto_col = rto_requests['Rto Reason'].astype(str).str.strip().str.lower()
+            # For each unique Request ID, determine its RTO reason category based on priority
+            incomplete_address = 0
+            doctor_refused_to_accept = 0
+            doctor_non_contactable = 0
             
-            # Identify which reasons are present for each request
-            has_incomplete_address = rto_col.str.contains('incomplete address', na=False, regex=False)
-            has_refused_to_accept = rto_col.str.contains('refused to accept', na=False, regex=False)
-            has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False)
-            
-            # CRITICAL: Assign each request to EXACTLY ONE category based on priority
-            # If a request has multiple reasons, only count it in the highest priority category
-            
-            # Count for Incomplete Address (highest priority)
-            incomplete_address = has_incomplete_address.sum()
-            
-            # Count for Doctor Refused (only if NOT already counted in Incomplete Address)
-            doctor_refused_to_accept = (~has_incomplete_address & has_refused_to_accept).sum()
-            
-            # Count for Doctor Non Contactable (only if NOT already counted in Incomplete or Refused)
-            doctor_non_contactable = (~has_incomplete_address & ~has_refused_to_accept & has_non_contactable).sum()
-            
-            # Handle Return requests without any RTO reason - add to Non Contactable as catch-all
-            has_any_rto_reason = has_incomplete_address | has_refused_to_accept | has_non_contactable
-            return_no_reason = (~has_any_rto_reason).sum()
-            if return_no_reason > 0:
-                doctor_non_contactable += return_no_reason
+            for req_id in unique_request_ids:
+                # Get all rows for this Request ID under this ABM
+                req_rows = abm_data[abm_data['Assigned Request Ids'] == req_id]
+                
+                # Check RTO reasons in the Rto Reason column (check all rows for this request)
+                rto_col = req_rows['Rto Reason'].astype(str).str.strip().str.lower()
+                
+                # Check which reasons are present for this Request ID
+                has_incomplete = rto_col.str.contains('incomplete address', na=False, regex=False).any()
+                has_refused = rto_col.str.contains('refused to accept', na=False, regex=False).any()
+                has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False).any()
+                
+                # Assign to EXACTLY ONE category based on priority
+                # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
+                if has_incomplete:
+                    incomplete_address += 1
+                elif has_refused:
+                    doctor_refused_to_accept += 1
+                elif has_non_contactable:
+                    doctor_non_contactable += 1
+                # If no RTO reason found, don't count in any category
             
             # Validate RTO breakdown
             rto_reasons_sum = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
