@@ -33,55 +33,7 @@ def create_zbm_hierarchical_reports():
     print("🧹 Preparing data...")
     
     # Find the correct column name for TBM/Created By
-    tbm_created_by_col =             # === SECTION I: RTO (Return to Origin) ===
-            # RTO Total: ONLY count requests with "Return" Final Answer
-            has_return_status = abm_data['Final Answer'] == 'Return'
-            rto_total = has_return_status.sum()
-            
-            # RTO Reasons: Count based on unique Request IDs that have RTO reasons
-            # INDEPENDENT of Final Answer status - based on Rto Reason column only
-            # Each unique Request ID is counted in ONLY ONE category based on priority
-            
-            # Get unique Request IDs for this ABM (regardless of Final Answer)
-            unique_request_ids = abm_data['Assigned Request Ids'].unique()
-            
-            # For each unique Request ID, determine its RTO reason category based on priority
-            incomplete_address = 0
-            doctor_refused_to_accept = 0
-            doctor_non_contactable = 0
-            
-            # Debug tracking
-            rto_reason_assignments = {}
-            
-            for req_id in unique_request_ids:
-                # Get all rows for this Request ID under this ABM
-                req_rows = abm_data[abm_data['Assigned Request Ids'] == req_id]
-                
-                # Check RTO reasons in the Rto Reason column (check all rows for this request)
-                rto_col = req_rows['Rto Reason'].astype(str).str.strip().str.lower()
-                
-                # Check which reasons are present for this Request ID
-                has_incomplete = rto_col.str.contains('incomplete address', na=False, regex=False).any()
-                has_refused = rto_col.str.contains('refused to accept', na=False, regex=False).any()
-                has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False).any()
-                
-                # Assign to EXACTLY ONE category based on priority
-                # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
-                assigned_category = None
-                if has_incomplete:
-                    incomplete_address += 1
-                    assigned_category = 'Incomplete Address'
-                elif has_refused:
-                    doctor_refused_to_accept += 1
-                    assigned_category = 'Doctor Refused to Accept'
-                elif has_non_contactable:
-                    doctor_non_contactable += 1
-                    assigned_category = 'Doctor Non Contactable'
-                # If no RTO reason found, don't count in any category
-                
-                # Store for debugging
-                if assigned_category:
-                    r
+    tbm_created_by_col = None
     for col in df.columns:
         if 'created by' in col.lower() or 'created_by' in col.lower():
             tbm_created_by_col = col
@@ -89,7 +41,7 @@ def create_zbm_hierarchical_reports():
             break
     
     if tbm_created_by_col is None:
-        print("⚠️ Warning: Could not find 'Created By' column, will use 'TBM EMAIL_ID' instead")
+        print("Warning: Could not find 'Created By' column, will use 'TBM EMAIL_ID' instead")
         tbm_created_by_col = 'TBM EMAIL_ID'
     
     # Ensure required columns exist
@@ -142,7 +94,7 @@ def create_zbm_hierarchical_reports():
         # Check for unmapped requests
         unmapped_count = (df['Final Answer'] == '❌ No matching rule').sum()
         if unmapped_count > 0:
-            print(f"⚠️ WARNING: {unmapped_count} rows have no matching rule in logic.xlsx")
+            print(f"   WARNING: {unmapped_count} rows have no matching rule in logic.xlsx")
             print(f"   Unique Request IDs with no rule: {df[df['Final Answer'] == '❌ No matching rule']['Assigned Request Ids'].nunique()}")
             
     except Exception as e:
@@ -192,7 +144,7 @@ def create_zbm_hierarchical_reports():
     # Debug: Check for any duplicates
     duplicate_codes = zbms['ZBM Terr Code'].value_counts()
     if len(duplicate_codes[duplicate_codes > 1]) > 0:
-        print(f"⚠️ WARNING: Found duplicate ZBM Terr Codes after deduplication!")
+        print(f"WARNING: Found duplicate ZBM Terr Codes after deduplication!")
         print(duplicate_codes[duplicate_codes > 1])
     
     # Debug: Show first few ZBMs and their ABMs
@@ -226,7 +178,7 @@ def create_zbm_hierarchical_reports():
         zbm_data = df_dedup[df_dedup['ZBM Terr Code'] == zbm_code].copy()
         
         if len(zbm_data) == 0:
-            print(f"⚠️ No data found for ZBM: {zbm_code}")
+            print(f"No data found for ZBM: {zbm_code}")
             continue
         
         # Get unique ABMs under this ZBM
@@ -289,42 +241,58 @@ def create_zbm_hierarchical_reports():
             dispatched_in_transit = (abm_data['Final Answer'].isin(transit_statuses)).sum()
             
             # === SECTION I: RTO (Return to Origin) ===
-            # RTO Total: Count unique Request IDs with "Return" Final Answer
-            rto_request_ids = abm_data[abm_data['Final Answer'] == 'Return']['Assigned Request Ids'].unique()
-            rto_total = len(rto_request_ids)
+            # RTO Total: ONLY count requests with "Return" Final Answer
+            has_return_status = abm_data['Final Answer'] == 'Return'
+            rto_total = has_return_status.sum()
             
-            # RTO Reasons: Count based on unique Request IDs in the deduplicated data
+            # RTO Reasons: Count based on unique Request IDs that have RTO reasons
+            # INDEPENDENT of Final Answer status - based on Rto Reason column only
             # Each unique Request ID is counted in ONLY ONE category based on priority
-            # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
             
+            # Get unique Request IDs for this ABM (regardless of Final Answer)
+            unique_request_ids = abm_data['Assigned Request Ids'].unique()
+            
+            # For each unique Request ID, determine its RTO reason category based on priority
             incomplete_address = 0
             doctor_refused_to_accept = 0
             doctor_non_contactable = 0
+            rto_due_to_hold_delivery = 0
+        
+
             
-            # Process each unique Request ID in this ABM's deduplicated data
-            for req_id in abm_data['Assigned Request Ids'].unique():
-                # Get the RTO reason for this Request ID from deduplicated data
-                req_row = abm_data[abm_data['Assigned Request Ids'] == req_id].iloc[0]
-                rto_reason = str(req_row['Rto Reason']).strip().lower()
+            for req_id in unique_request_ids:
+                # Get all rows for this Request ID under this ABM
+                req_rows = abm_data[abm_data['Assigned Request Ids'] == req_id]
                 
-                # Skip if no RTO reason or NaN
-                if rto_reason == 'nan' or not rto_reason:
-                    continue
+                # Check RTO reasons in the Rto Reason column (check all rows for this request)
+                rto_col = req_rows['Rto Reason'].astype(str).str.strip().str.lower()
                 
-                # Assign to ONE category based on priority (first match wins)
-                if 'incomplete address' in rto_reason:
+                # Check which reasons are present for this Request ID
+                has_incomplete = rto_col.str.contains('incomplete address', na=False, regex=False).any()
+                has_refused = rto_col.str.contains('refused to accept', na=False, regex=False).any()
+                has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False).any()
+                has_rto_hold_delivery = rto_col.str.contains('hold delivery', na=False, regex=False).any()
+
+                # Assign to EXACTLY ONE category based on priority
+                # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
+                if has_incomplete:
                     incomplete_address += 1
-                elif 'refused to accept' in rto_reason:
+                elif has_refused:
                     doctor_refused_to_accept += 1
-                elif 'non contactable' in rto_reason:
+                elif has_non_contactable:
                     doctor_non_contactable += 1
+                elif has_rto_hold_delivery:
+                    rto_due_to_hold_delivery +=1
+                # If no RTO reason found, don't count in any category
             
             # Validate RTO breakdown
-            rto_reasons_sum = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
+            rto_reasons_sum = incomplete_address + doctor_non_contactable + doctor_refused_to_accept + rto_due_to_hold_delivery
             if rto_reasons_sum != rto_total:
-                print(f"      ⚠️ RTO Breakdown mismatch for ABM {abm_code}:")
+                print(f"      RTO Breakdown mismatch for ABM {abm_code}:")
                 print(f"         RTO Total: {rto_total}, Reasons Sum: {rto_reasons_sum}")
                 print(f"         Incomplete: {incomplete_address}, Refused: {doctor_refused_to_accept}, Non-contactable: {doctor_non_contactable}")
+                print(f" RTO Hold due to hold delivery: {rto_due_to_hold_delivery}")
+                # print(f"         Return without reason: {return_no_reason}")
             
             # === CALCULATED FIELDS ===
             # F = Requests Dispatched = G + H + I
@@ -345,13 +313,13 @@ def create_zbm_hierarchical_reports():
             unmapped_count = (~mapped).sum()
             
             if unmapped_count > 0:
-                print(f"      ⚠️ {unmapped_count} unmapped requests for ABM {abm_code}")
+                print(f"      {unmapped_count} unmapped requests for ABM {abm_code}")
                 unmapped_statuses = abm_data[~mapped]['Final Answer'].value_counts().to_dict()
                 print(f"         Unmapped statuses: {unmapped_statuses}")
             
             # Verify tally
             if requests_raised_calc != unique_requests:
-                print(f"      ❌ TALLY MISMATCH for ABM {abm_code}:")
+                print(f"         TALLY MISMATCH for ABM {abm_code}:")
                 print(f"         Calculated: {requests_raised_calc}, Actual: {unique_requests}, Diff: {unique_requests - requests_raised_calc}")
                 print(f"         A={request_cancelled_out_of_stock}, B={action_pending_at_ho}, C={sent_to_hub}")
                 print(f"         D={pending_for_invoicing}, E={pending_for_dispatch}, F={requests_dispatched}")
@@ -386,7 +354,7 @@ def create_zbm_hierarchical_reports():
                 'Incomplete Address': incomplete_address,
                 'Doctor Non Contactable': doctor_non_contactable,
                 'Doctor Refused to Accept': doctor_refused_to_accept,
-                'Hold Delivery': hold_delivery
+                'Hold Delivery': rto_due_to_hold_delivery,
             })
         
         # Create DataFrame for this ZBM
@@ -397,7 +365,7 @@ def create_zbm_hierarchical_reports():
         zbm_summary_total = zbm_summary_df['Requests Raised'].sum()
         
         if zbm_total_requests != zbm_summary_total:
-            print(f"   ⚠️ WARNING: ZBM {zbm_code} total mismatch!")
+            print(f"      WARNING: ZBM {zbm_code} total mismatch!")
             print(f"      Actual unique requests: {zbm_total_requests}")
             print(f"      Summary total: {zbm_summary_total}")
             print(f"      Difference: {zbm_summary_total - zbm_total_requests}")
@@ -409,7 +377,7 @@ def create_zbm_hierarchical_reports():
     print(f"\n🎉 Successfully created {file_count} ZBM reports in directory: {output_dir}")
     print(f"📊 Total ZBMs processed: {file_count}")
     if total_validation_errors > 0:
-        print(f"⚠️ WARNING: {total_validation_errors} ABMs had validation errors")
+        print(f"WARNING: {total_validation_errors} ABMs had validation errors")
     else:
         print(f"✅ All tallies match perfectly!")
 
