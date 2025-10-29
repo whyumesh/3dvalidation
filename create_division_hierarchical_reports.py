@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -7,60 +6,62 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from copy import copy as copy_style
 import warnings
-import sys
-
-# Set UTF-8 encoding for console output (fixes Windows encoding issues)
-if sys.platform == 'win32':
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 # Suppress FutureWarning for groupby operations
 warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 
 def create_division_hierarchical_reports():
     """
-    Create separate Division reports showing ZBM hierarchy with perfect tallies
-    Each Division gets a report showing all ZBMs under them
+    Create separate Division reports showing TBM Division hierarchy with perfect tallies
+    Each TBM Division gets a report showing all TBMs under them
     """
     
-    print("🔄 Starting Division Hierarchical Reports Creation...")
+    print("📄 Starting Division Hierarchical Reports Creation...")
     
     # Read master tracker data from Excel file
-    print("📖 Reading Sample Master Tracker.xlsx...")
+    print("📖 Reading ZBM Automation Email 2410252.xlsx...")
     try:
-        df = pd.read_excel('Sample Master Tracker.xlsx')
-        print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
+        df = pd.read_excel('ZBM Automation Email 2410252.xlsx')
+        print(f"✅ Successfully loaded {len(df)} records")
     except Exception as e:
-        print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
+        print(f"❌ Error reading file: {e}")
         return
     
-    # Using Final Answer field computed from Request Status using business rules
-    print("📊 Using Final Answer field computed from Request Status using business rules for accurate counts...")
+    print(f"📋 Columns in file: {list(df.columns)}")
     
-    # Clean and prepare data
-    print("🧹 Cleaning and preparing data...")
+    # Basic data preparation
+    print("🧹 Preparing data...")
+    
+    # Find the correct column name for TBM/Created By
+    tbm_created_by_col = None
+    for col in df.columns:
+        if 'created by' in col.lower() or 'created_by' in col.lower():
+            tbm_created_by_col = col
+            print(f"✅ Found TBM Created By column: '{col}'")
+            break
+    
+    if tbm_created_by_col is None:
+        print("Warning: Could not find 'Created By' column, will use 'TBM EMAIL_ID' instead")
+        tbm_created_by_col = 'TBM EMAIL_ID'
     
     # Ensure required columns exist
-    required_columns = ['TBM Division', 'ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID',
+    required_columns = ['TBM Division', 'AFFILIATE', 'DIV_NAME',
                         'ABM Terr Code', 'ABM Name', 'ABM EMAIL_ID',
-                        'TBM HQ', 'TBM EMAIL_ID',
+                        'ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID',
                         'Doctor: Customer Code', 'Assigned Request Ids', 'Request Status', 'Rto Reason']
+    
+    # Add the TBM created by column if it's different from TBM EMAIL_ID
+    if tbm_created_by_col != 'TBM EMAIL_ID' and tbm_created_by_col not in required_columns:
+        required_columns.append(tbm_created_by_col)
+    
     missing = [c for c in required_columns if c not in df.columns]
     if missing:
-        print(f"❌ Missing required columns in Sample Master Tracker.xlsx: {missing}")
+        print(f"❌ Missing required columns: {missing}")
         return
 
-    # Remove rows where key fields are null or empty
-    df = df.dropna(subset=['TBM Division', 'ZBM Terr Code', 'ZBM Name', 'ABM Terr Code', 'ABM Name', 'TBM HQ'])
-    df = df[df['TBM Division'].astype(str).str.strip() != '']
-    df = df[df['ZBM Terr Code'].astype(str).str.strip() != '']
-    df = df[df['ABM Terr Code'].astype(str).str.strip() != '']
-    df = df[df['TBM HQ'].astype(str).str.strip() != '']
-
-    # Filter for ZBM codes that start with "ZN" (only restriction needed)
-    df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
-    print(f"📊 After cleaning and ZBM filtering: {len(df)} records remaining")
+    print(f"📊 Total rows in file: {len(df)}")
+    print(f"📊 Unique Request IDs in raw data: {df['Assigned Request Ids'].nunique()}")
+    print(f"📊 Unique TBM Divisions in raw data: {df['TBM Division'].nunique()}")
 
     # Compute Final Answer per unique request id using rules from logic.xlsx
     print("🧠 Computing final status per unique Request Id using rules...")
@@ -87,30 +88,80 @@ def create_division_hierarchical_reports():
         grouped['Request Status'] = grouped['Request Status'].apply(lambda lst: sorted(set(lst), key=str))
         grouped['Final Answer'] = grouped['Request Status'].apply(get_final_answer)
 
-        def has_action_pending(status_list):
-            target = 'action pending / in process'
-            return any(normalize(s) == target for s in status_list)
-        grouped['Has D Pending'] = grouped['Request Status'].apply(has_action_pending)
-
         # Merge Final Answer back to main dataframe
-        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer', 'Has D Pending']], on='Assigned Request Ids', how='left')
+        df = df.merge(grouped[['Assigned Request Ids', 'Final Answer']], on='Assigned Request Ids', how='left')
+        
+        # Check for unmapped requests
+        unmapped_count = (df['Final Answer'] == '❌ No matching rule').sum()
+        if unmapped_count > 0:
+            print(f"   WARNING: {unmapped_count} rows have no matching rule in logic.xlsx")
+            print(f"   Unique Request IDs with no rule: {df[df['Final Answer'] == '❌ No matching rule']['Assigned Request Ids'].nunique()}")
+            
     except Exception as e:
         print(f"❌ Error computing final status from logic.xlsx: {e}")
         return
     
-    # Get unique Divisions
-    divisions = df[['TBM Division']].drop_duplicates().sort_values('TBM Division')
-    print(f"📋 Found {len(divisions)} unique Divisions")
+    # Deduplicate at Request ID + TBM Division + ABM level to get correct counts
+    print("🔧 Deduplicating data at Request ID + TBM Division + ABM level...")
     
-    # Debug: Show all Divisions and their ZBMs
-    print("\n🔍 Division-ZBM Mapping:")
-    for _, div_row in divisions.iterrows():
+    # Store original data for validation
+    original_request_count = df['Assigned Request Ids'].nunique()
+    
+    # Deduplicate: Each unique (Request ID + TBM Division + ABM) combination should appear once
+    agg_dict = {
+        'AFFILIATE': 'first',
+        'DIV_NAME': 'first',
+        'ABM Name': 'first',
+        'ABM EMAIL_ID': 'first',
+        'ZBM Terr Code': 'first',
+        'ZBM Name': 'first',
+        'ZBM EMAIL_ID': 'first',
+        'Doctor: Customer Code': 'first',
+        'Final Answer': 'first',
+        'Rto Reason': 'first',
+    }
+    
+    # Add TBM created by column if it exists and is different
+    if tbm_created_by_col and tbm_created_by_col != 'TBM EMAIL_ID':
+        agg_dict[tbm_created_by_col] = 'first'
+    
+    # Add TBM HQ if it exists
+    if 'TBM HQ' in df.columns:
+        agg_dict['TBM HQ'] = 'first'
+    
+    # Add ABM HQ if it exists
+    if 'ABM HQ' in df.columns:
+        agg_dict['ABM HQ'] = 'first'
+    
+    df_dedup = df.groupby(['Assigned Request Ids', 'TBM Division', 'ABM Terr Code']).agg(agg_dict).reset_index()
+    
+    print(f"📊 Deduplicated from {len(df)} rows to {len(df_dedup)} unique (Request ID + TBM Division + ABM) combinations")
+    print(f"📊 Unique Request IDs after dedup: {df_dedup['Assigned Request Ids'].nunique()}")
+    
+    # Get unique TBM Divisions
+    divisions = df_dedup.groupby('TBM Division').agg({
+        'AFFILIATE': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0],
+        'DIV_NAME': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0]
+    }).reset_index().sort_values('TBM Division')
+    
+    print(f"📋 Found {len(divisions)} unique TBM Divisions")
+    
+    # Debug: Check for any duplicates
+    duplicate_codes = divisions['TBM Division'].value_counts()
+    if len(duplicate_codes[duplicate_codes > 1]) > 0:
+        print(f"WARNING: Found duplicate TBM Division codes after deduplication!")
+        print(duplicate_codes[duplicate_codes > 1])
+    
+    # Debug: Show first few Divisions and their ABMs
+    print("\n🔍 Division-ABM Mapping (first 5):")
+    for idx, (_, div_row) in enumerate(divisions.head(5).iterrows()):
         div_code = div_row['TBM Division']
-        div_data_temp = df[df['TBM Division'] == div_code]
-        zbms_temp = div_data_temp[['ZBM Terr Code', 'ZBM Name']].drop_duplicates()
-        print(f"   Division {div_code}: {len(zbms_temp)} ZBMs")
-        for _, zbm_row in zbms_temp.iterrows():
-            print(f"      - {zbm_row['ZBM Terr Code']}: {zbm_row['ZBM Name']}")
+        affiliate = div_row['AFFILIATE']
+        div_name = div_row['DIV_NAME']
+        div_data_temp = df_dedup[df_dedup['TBM Division'] == div_code]
+        abms_temp = div_data_temp[['ABM Terr Code', 'ABM Name']].drop_duplicates()
+        requests_temp = div_data_temp['Assigned Request Ids'].nunique()
+        print(f"   {idx+1}. Division {div_code} ({affiliate} - {div_name}): {len(abms_temp)} ABMs, {requests_temp} requests")
     
     # Create output directory
     timestamp = datetime.now().strftime('%Y%m%d')
@@ -119,111 +170,201 @@ def create_division_hierarchical_reports():
     print(f"📁 Created output directory: {output_dir}")
     
     # Process each Division
+    file_count = 0
+    total_validation_errors = 0
+    
     for _, div_row in divisions.iterrows():
         div_code = div_row['TBM Division']
+        affiliate = div_row['AFFILIATE']
+        div_name = div_row['DIV_NAME']
         
-        print(f"\n🔄 Processing Division: {div_code}")
+        print(f"\n📄 Processing Division: {div_code} - {affiliate} - {div_name}")
         
-        # Filter data for this Division
-        div_data = df[df['TBM Division'] == div_code].copy()
+        # Filter data for this Division (using deduplicated data)
+        div_data = df_dedup[df_dedup['TBM Division'] == div_code].copy()
         
         if len(div_data) == 0:
-            print(f"⚠️ No data found for Division: {div_code}")
+            print(f"No data found for Division: {div_code}")
             continue
         
-        # Get unique ZBMs under this Division
-        zbms = div_data.groupby(['ZBM Terr Code', 'ZBM Name']).agg({
-            'ZBM EMAIL_ID': 'first'
-        }).reset_index()
+        # Calculate totals for the entire Division (not individual ABMs)
+        print(f"   📊 Calculating totals for entire Division")
         
-        zbms = zbms.sort_values('ZBM Terr Code')
-        print(f"   📊 Found {len(zbms)} ZBMs under this Division")
+        # Calculate all metrics using deduplicated data for the entire division
+        # Use the dynamically found TBM created by column
+        unique_tbms = div_data[tbm_created_by_col].nunique()
+        unique_hcps = div_data['Doctor: Customer Code'].nunique()
+        unique_requests = div_data['Assigned Request Ids'].nunique()
         
-        # Create summary data for this Division
-        summary_data = []
+        # === SECTION A: Request Cancelled Out of Stock ===
+        # Final Answer: Out of stock, On hold, Not permitted
+        ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
+        request_cancelled_out_of_stock = div_data[div_data['Final Answer'].isin(ho_statuses)]['Assigned Request Ids'].nunique()
         
-        for _, zbm_row in zbms.iterrows():
-            zbm_code = zbm_row['ZBM Terr Code']
-            zbm_name = zbm_row['ZBM Name']
-            zbm_email = zbm_row['ZBM EMAIL_ID']
-            
-            # Filter data for this specific ZBM
-            zbm_data = div_data[(div_data['ZBM Terr Code'] == zbm_code) & (div_data['ZBM Name'] == zbm_name)]
-            
-            print(f"      Processing {zbm_name} ({zbm_code}): {len(zbm_data)} records")
-            
-            # Calculate metrics for this ZBM
-            unique_tbms = zbm_data['TBM EMAIL_ID'].nunique() if 'TBM EMAIL_ID' in zbm_data.columns else 0
-            unique_hcps = zbm_data['Doctor: Customer Code'].nunique()
-            unique_requests = zbm_data['Assigned Request Ids'].nunique()
-            
-            # HO Section (A + B) - Using Final Answer instead of Request Status
-            # Count unique request IDs for each status category
-            request_cancelled_out_of_stock = zbm_data[zbm_data['Final Answer'].isin(['Out of stock', 'On hold', 'Not permitted'])]['Assigned Request Ids'].nunique()
-            action_pending_at_ho = zbm_data[zbm_data['Final Answer'].isin(['Request Raised', 'Action pending / In Process At HO'])]['Assigned Request Ids'].nunique()
-            
-            # HUB Section (D + E) - Using Final Answer instead of Request Status
-            pending_for_invoicing = zbm_data[zbm_data['Final Answer'].isin(['Action pending / In Process At Hub'])]['Assigned Request Ids'].nunique()
-            pending_for_dispatch = zbm_data[zbm_data['Final Answer'].isin(['Dispatch  Pending'])]['Assigned Request Ids'].nunique()
-            
-            # Delivery Status (G + H) - Using Final Answer instead of Request Status
-            delivered = zbm_data[zbm_data['Final Answer'].isin(['Delivered'])]['Assigned Request Ids'].nunique()
-            dispatched_in_transit = zbm_data[zbm_data['Final Answer'].isin(['Dispatched & In Transit'])]['Assigned Request Ids'].nunique()
-            
-            # RTO Reasons - Calculate FIRST before using in formulas
-            # Note: RTO reasons are based on Rto Reason field, not Final Answer
-            # Count unique request IDs for each RTO reason
-            incomplete_address = zbm_data[zbm_data['Rto Reason'].str.contains('Incomplete Address', na=False, case=False)]['Assigned Request Ids'].nunique()
-            doctor_non_contactable = zbm_data[zbm_data['Rto Reason'].str.contains('Dr. Non contactable', na=False, case=False)]['Assigned Request Ids'].nunique()
-            doctor_refused_to_accept = zbm_data[zbm_data['Rto Reason'].str.contains('Doctor Refused to Accept', na=False, case=False)]['Assigned Request Ids'].nunique()
-            
-            # Calculate RTO as sum of RTO reasons
-            rto_total = incomplete_address + doctor_non_contactable + doctor_refused_to_accept
-            
-            # Calculated fields using the RTO total
-            requests_dispatched = delivered + dispatched_in_transit + rto_total  # F = G + H + I
-            sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched  # C = D + E + F
-            requests_raised = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub  # A + B + C
-            hold_delivery = 0
-            
-            summary_data.append({
-                'ZBM Code': zbm_code,
-                'ZBM Name': zbm_name,
-                'Unique TBMs': unique_tbms,
-                'Unique HCPs': unique_hcps,
-                'Requests Raised': requests_raised,
-                'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
-                'Action Pending at HO': action_pending_at_ho,
-                'Sent to HUB': sent_to_hub,
-                'Pending for Invoicing': pending_for_invoicing,
-                'Pending for Dispatch': pending_for_dispatch,
-                'Requests Dispatched': requests_dispatched,
-                'Delivered': delivered,
-                'Dispatched In Transit': dispatched_in_transit,
-                'RTO': rto_total,  # Use rto_total instead of rto
-                'Incomplete Address': incomplete_address,
-                'Doctor Non Contactable': doctor_non_contactable,
-                'Doctor Refused to Accept': doctor_refused_to_accept,
-                'Hold Delivery': hold_delivery
-            })
+        # === SECTION B: Action Pending at HO ===
+        # Final Answer: Request Raised, Action pending / In Process At HO
+        pending_statuses = ['Request Raised', 'Action pending / In Process At HO']
+        action_pending_at_ho = div_data[div_data['Final Answer'].isin(pending_statuses)]['Assigned Request Ids'].nunique()
         
-        # Create DataFrame for this Division
+        # === SECTION D: Pending for Invoicing ===
+        # Final Answer: Action pending / In Process At Hub
+        hub_pending_statuses = ['Action pending / In Process At Hub']
+        pending_for_invoicing = div_data[div_data['Final Answer'].isin(hub_pending_statuses)]['Assigned Request Ids'].nunique()
+        
+        # === SECTION E: Pending for Dispatch ===
+        # Final Answer: Dispatch Pending
+        dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending']
+        pending_for_dispatch = div_data[div_data['Final Answer'].isin(dispatch_pending_statuses)]['Assigned Request Ids'].nunique()
+        
+        # === SECTION G: Delivered ===
+        # Final Answer: Delivered
+        delivered_statuses = ['Delivered']
+        delivered = div_data[div_data['Final Answer'].isin(delivered_statuses)]['Assigned Request Ids'].nunique()
+        
+        # === SECTION H: Dispatched & In Transit ===
+        # Final Answer: Dispatched & In Transit
+        transit_statuses = ['Dispatched & In Transit']
+        dispatched_in_transit = div_data[div_data['Final Answer'].isin(transit_statuses)]['Assigned Request Ids'].nunique()
+        
+        # === SECTION I: RTO (Return to Origin) ===
+        # RTO Total: ONLY count requests with "Return" Final Answer
+        rto_total = div_data[div_data['Final Answer'] == 'Return']['Assigned Request Ids'].nunique()
+        
+        # RTO Reasons: Count based on unique Request IDs that have RTO reasons
+        # Get unique Request IDs for this Division that have Return status
+        unique_request_ids = div_data[div_data['Final Answer'] == 'Return']['Assigned Request Ids'].unique()
+        
+        # For each unique Request ID, determine its RTO reason category based on priority
+        incomplete_address = 0
+        doctor_refused_to_accept = 0
+        doctor_non_contactable = 0
+        rto_due_to_hold_delivery = 0
+    
+        for req_id in unique_request_ids:
+            # Get all rows for this Request ID under this Division
+            req_rows = div_data[div_data['Assigned Request Ids'] == req_id]
+            
+            # Check RTO reasons in the Rto Reason column (check all rows for this request)
+            rto_col = req_rows['Rto Reason'].astype(str).str.strip().str.lower()
+            
+            # Check which reasons are present for this Request ID
+            has_incomplete = rto_col.str.contains('incomplete address', na=False, regex=False).any()
+            has_refused = rto_col.str.contains('refused to accept', na=False, regex=False).any()
+            has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False).any()
+            has_rto_hold_delivery = rto_col.str.contains('hold delivery', na=False, regex=False).any()
+
+            # Assign to EXACTLY ONE category based on priority
+            # Priority: 1) Incomplete Address, 2) Doctor Refused, 3) Doctor Non Contactable
+            if has_incomplete:
+                incomplete_address += 1
+            elif has_refused:
+                doctor_refused_to_accept += 1
+            elif has_non_contactable:
+                doctor_non_contactable += 1
+            elif has_rto_hold_delivery:
+                rto_due_to_hold_delivery +=1
+            # If no RTO reason found, don't count in any category
+        
+        # Validate RTO breakdown
+        rto_reasons_sum = incomplete_address + doctor_non_contactable + doctor_refused_to_accept + rto_due_to_hold_delivery
+        if rto_reasons_sum != rto_total:
+            print(f"      RTO Breakdown mismatch for Division {div_code}:")
+            print(f"         RTO Total: {rto_total}, Reasons Sum: {rto_reasons_sum}")
+            print(f"         Incomplete: {incomplete_address}, Refused: {doctor_refused_to_accept}, Non-contactable: {doctor_non_contactable}")
+            print(f"         RTO Hold due to hold delivery: {rto_due_to_hold_delivery}")
+        
+        # === CALCULATED FIELDS ===
+        # F = Requests Dispatched = G + H + I
+        requests_dispatched = delivered + dispatched_in_transit + rto_total
+        
+        # C = Sent to HUB = D + E + F
+        sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
+        
+        # Total = Requests Raised = A + B + C
+        requests_raised_calc = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
+        
+        # Hold Delivery (not used in current logic)
+        hold_delivery = 0
+        
+        # Check for unmapped requests
+        all_mapped_statuses = ho_statuses + pending_statuses + hub_pending_statuses + dispatch_pending_statuses + delivered_statuses + transit_statuses + ['Return']
+        mapped_requests = div_data[div_data['Final Answer'].isin(all_mapped_statuses)]['Assigned Request Ids'].nunique()
+        unmapped_count = unique_requests - mapped_requests
+        
+        if unmapped_count > 0:
+            print(f"      {unmapped_count} unmapped requests for Division {div_code}")
+            unmapped_data = div_data[~div_data['Final Answer'].isin(all_mapped_statuses)]
+            unmapped_statuses = unmapped_data['Final Answer'].value_counts().to_dict()
+            print(f"         Unmapped statuses: {unmapped_statuses}")
+        
+        # Verify tally
+        if requests_raised_calc != unique_requests:
+            print(f"         TALLY MISMATCH for Division {div_code}:")
+            print(f"         Calculated: {requests_raised_calc}, Actual: {unique_requests}, Diff: {unique_requests - requests_raised_calc}")
+            print(f"         A={request_cancelled_out_of_stock}, B={action_pending_at_ho}, C={sent_to_hub}")
+            print(f"         D={pending_for_invoicing}, E={pending_for_dispatch}, F={requests_dispatched}")
+            print(f"         G={delivered}, H={dispatched_in_transit}, I={rto_total}")
+            total_validation_errors += 1
+        
+        # Use actual unique request count to ensure accuracy
+        requests_raised = unique_requests
+        
+        # Create single row summary data for the entire Division
+        summary_data = [{
+            'Affiliate': affiliate,
+            'Division': div_code,
+            'Division Name': div_name,
+            'Area Name': f"Division {div_code} - {affiliate} - {div_name}",
+            'ABM Name': 'Total',
+            'Unique TBMs': unique_tbms,
+            'Unique HCPs': unique_hcps,
+            'Requests Raised': requests_raised,
+            'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
+            'Action Pending at HO': action_pending_at_ho,
+            'Sent to HUB': sent_to_hub,
+            'Pending for Invoicing': pending_for_invoicing,
+            'Pending for Dispatch': pending_for_dispatch,
+            'Requests Dispatched': requests_dispatched,
+            'Delivered': delivered,
+            'Dispatched In Transit': dispatched_in_transit,
+            'RTO': rto_total,
+            'Incomplete Address': incomplete_address,
+            'Doctor Non Contactable': doctor_non_contactable,
+            'Doctor Refused to Accept': doctor_refused_to_accept,
+            'Hold Delivery': rto_due_to_hold_delivery,
+        }]
+        
+        # Create DataFrame for this Division (single row)
         div_summary_df = pd.DataFrame(summary_data)
         
+        # Validate Division total
+        div_total_requests = div_data['Assigned Request Ids'].nunique()
+        div_summary_total = div_summary_df['Requests Raised'].sum()
+        
+        if div_total_requests != div_summary_total:
+            print(f"      WARNING: Division {div_code} total mismatch!")
+            print(f"      Actual unique requests: {div_total_requests}")
+            print(f"      Summary total: {div_summary_total}")
+            print(f"      Difference: {div_summary_total - div_total_requests}")
+        
         # Create Excel file for this Division
-        create_division_excel_report(div_code, div_summary_df, output_dir)
+        create_division_excel_report(div_code, affiliate, div_name, div_summary_df, output_dir)
+        file_count += 1
     
-    print(f"\n🎉 Successfully created {len(divisions)} Division reports in directory: {output_dir}")
+    print(f"\n🎉 Successfully created {file_count} Division reports in directory: {output_dir}")
+    print(f"📊 Total Divisions processed: {file_count}")
+    if total_validation_errors > 0:
+        print(f"WARNING: {total_validation_errors} TBMs had validation errors")
+    else:
+        print(f"✅ All tallies match perfectly!")
 
-def create_division_excel_report(div_code, summary_df, output_dir):
+def create_division_excel_report(div_code, affiliate, div_name, summary_df, output_dir):
     """Create Excel report for a specific Division with perfect formatting"""
     
     try:
-        # Load template (use zbm_summary.xlsx as template)
-        wb = load_workbook('zbm_summary.xlsx')
-        ws = wb['ZBM']
-
-        print(f"   📋 Creating Excel report for Division {div_code}...")
+        # Load template
+        wb = load_workbook('division summary.xlsx')
+        ws = wb.active  # Use the active sheet
 
         def get_cell_value_handling_merged(row, col):
             """Get cell value even if it's part of a merged cell"""
@@ -240,113 +381,59 @@ def create_division_excel_report(div_code, summary_df, output_dir):
         
         # Search for header row
         header_row = None
-        for row_idx in range(1, 15):  # Check first 15 rows
-            for col_idx in range(1, min(30, ws.max_column + 1)):  # Check first 30 columns
+        for row_idx in range(1, 15):
+            for col_idx in range(1, min(30, ws.max_column + 1)):
                 cell_value = get_cell_value_handling_merged(row_idx, col_idx)
-                if cell_value and 'Area Name' in str(cell_value):
+                if cell_value and 'Affiliate' in str(cell_value):
                     header_row = row_idx
                     break
             if header_row:
                 break
         
         if header_row is None:
-            print(f"   ⚠️ Could not find header row in template, using row 7 as default")
-            header_row = 7
+            header_row = 5  # Default to row 5 based on template structure
         
-        print(f"   ℹ️ Detected header row: {header_row}")
         data_start_row = header_row + 1
         
-        # Read actual column positions from template header row, handling merged cells
+        # Read actual column positions from template header row
         column_mapping = {}
         for col_idx in range(1, min(30, ws.max_column + 1)):
             header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
                 header_str = str(header_val).strip()
                 
-                # Map template headers to our data columns - SKIP Area Name and ABM Name columns
-                if 'Area Name' in header_str:
-                    continue  # Skip Area Name column for division reports
-                elif 'ABM Name' in header_str or ('Name' in header_str and 'ZBM' not in header_str):
-                    continue  # Skip ABM Name column for division reports
-                elif 'ZBM Name' in header_str or 'ZBM Code' in header_str:
-                    # Add ZBM Name/Code to the first available column after skipping Area/ABM Name
-                    if 'ZBM Name' not in column_mapping:
-                        column_mapping['ZBM Name'] = col_idx
-                    elif 'ZBM Code' not in column_mapping:
-                        column_mapping['ZBM Code'] = col_idx
-                elif 'Unique TBMs' in header_str or '# Unique TBMs' in header_str:
+                if 'Affiliate' in header_str:
+                    column_mapping['Affiliate'] = col_idx
+                elif 'Division' in header_str and 'Name' not in header_str:
+                    column_mapping['Division'] = col_idx
+                elif 'Division Name' in header_str:
+                    column_mapping['Division Name'] = col_idx
+                elif 'TBMs' in header_str or '# TBMs' in header_str:
                     column_mapping['Unique TBMs'] = col_idx
-                elif 'Unique HCPs' in header_str or '# Unique HCPs' in header_str:
+                elif 'HCPs' in header_str or '# Unique HCPs' in header_str:
                     column_mapping['Unique HCPs'] = col_idx
-                elif 'Requests Raised' in header_str or '# Requests Raised' in header_str:
+                elif 'Requests raised' in header_str or '# Requests raised' in header_str:
                     column_mapping['Requests Raised'] = col_idx
-                elif 'Request Cancelled' in header_str or 'Out of Stock' in header_str:
-                    column_mapping['Request Cancelled Out of Stock'] = col_idx
+                elif 'dispatched' in header_str and 'In Transit' not in header_str:
+                    column_mapping['Requests Dispatched'] = col_idx
                 elif 'Action pending' in header_str and 'HO' in header_str:
                     column_mapping['Action Pending at HO'] = col_idx
-                elif 'Sent to HUB' in header_str:
-                    column_mapping['Sent to HUB'] = col_idx
-                elif 'Pending for Invoicing' in header_str:
-                    column_mapping['Pending for Invoicing'] = col_idx
-                elif 'Pending for Dispatch' in header_str:
-                    column_mapping['Pending for Dispatch'] = col_idx
-                elif 'Requests Dispatched' in header_str or '# Requests Dispatched' in header_str:
-                    column_mapping['Requests Dispatched'] = col_idx
-                elif header_str == 'Delivered' or 'Delivered (G)' in header_str:
-                    column_mapping['Delivered'] = col_idx
-                elif 'Dispatched & In Transit' in header_str or 'Dispatched In Transit' in header_str:
+                elif 'Dispatched & In Transit' in header_str:
                     column_mapping['Dispatched In Transit'] = col_idx
-                elif header_str == 'RTO' or 'RTO (I)' in header_str:
+                elif 'Out of stock' in header_str:
+                    column_mapping['Request Cancelled Out of Stock'] = col_idx
+                elif 'Delivered' in header_str:
+                    column_mapping['Delivered'] = col_idx
+                elif 'RTO' in header_str:
                     column_mapping['RTO'] = col_idx
                 elif 'Incomplete Address' in header_str:
                     column_mapping['Incomplete Address'] = col_idx
-                elif 'Doctor Non Contactable' in header_str or 'Dr. Non contactable' in header_str:
+                elif 'Non contactable' in header_str:
                     column_mapping['Doctor Non Contactable'] = col_idx
-                elif 'Doctor Refused' in header_str or 'Refused to Accept' in header_str:
+                elif 'refused to accept' in header_str:
                     column_mapping['Doctor Refused to Accept'] = col_idx
-                elif 'Hold Delivery' in header_str:
-                    column_mapping['Hold Delivery'] = col_idx
         
-        print(f"   ℹ️ Detected {len(column_mapping)} columns: {list(column_mapping.keys())}")
-        
-        # Verify we have the essential columns
-        essential_cols = ['Unique TBMs', 'Unique HCPs', 'Requests Raised']
-        missing_essential = [col for col in essential_cols if col not in column_mapping]
-        if missing_essential:
-            print(f"   ⚠️ WARNING: Missing essential columns in template: {missing_essential}")
-        
-        # Print summary_df to verify data exists
-        print(f"   ℹ️ Summary DataFrame shape: {summary_df.shape}")
-        print(f"   ℹ️ Summary DataFrame columns: {list(summary_df.columns)}")
-        if len(summary_df) > 0:
-            print(f"   ℹ️ First row sample: TBMs={summary_df.iloc[0]['Unique TBMs']}, HCPs={summary_df.iloc[0]['Unique HCPs']}")
-        else:
-            print(f"   ⚠️ WARNING: Summary DataFrame is empty!")
-            return
-        
-        # Debug: Print all headers with their values from template
-        print(f"   🔍 Template headers found:")
-        for col_idx in range(1, min(30, ws.max_column + 1)):
-            val = get_cell_value_handling_merged(header_row, col_idx)
-            if val:
-                print(f"      Column {col_idx}: '{val}'")
-        
-        # Find and delete Area Name and ABM Name columns (columns 5 and 6 typically)
-        columns_to_delete = []
-        for col_idx in range(1, min(30, ws.max_column + 1)):
-            header_val = get_cell_value_handling_merged(header_row, col_idx)
-            if header_val:
-                header_str = str(header_val).strip()
-                if 'Area Name' in header_str or 'ABM Name' in header_str:
-                    columns_to_delete.append(col_idx)
-        
-        # Delete columns in reverse order to maintain correct indices
-        for col_idx in sorted(columns_to_delete, reverse=True):
-            ws.delete_cols(col_idx)
-            # Adjust column mappings after deletion
-            column_mapping = {k: (v - 1 if v > col_idx else v) for k, v in column_mapping.items()}
-        
-        # Clear existing data rows (preserve header)
+        # Clear existing data rows
         max_clear_rows = max(len(summary_df) + 10, 50)
         for r in range(data_start_row, data_start_row + max_clear_rows):
             for c in range(1, ws.max_column + 1):
@@ -375,85 +462,36 @@ def create_division_excel_report(div_code, summary_df, output_dir):
                 except:
                     pass
 
-        # Write data rows
-        template_data_row = data_start_row  # Use first data row as template
-        for i in range(len(summary_df)):
-            target_row = data_start_row + i
-            
-            # Copy formatting from template
-            copy_row_style(template_data_row, target_row)
-            
-            # Write data to mapped columns
-            for col_name, col_idx in column_mapping.items():
-                if col_name in summary_df.columns:
-                    value = summary_df.iloc[i][col_name]  # Use iloc for safer access
-                    
-                    # Debug print for first row
-                    if i == 0:
-                        print(f"      Writing '{col_name}' = {value} to column {col_idx}")
-                    
-                    try:
-                        cell = ws.cell(row=target_row, column=col_idx)
-                        cell.value = value
-                        
-                        # Apply number formatting for numeric columns
-                        if isinstance(value, (int, float)) and not pd.isna(value):
-                            cell.number_format = '0'
-                    except Exception as e:
-                        print(f"      Warning: Could not write to cell ({target_row}, {col_idx}): {e}")
-
-        # Add total row
-        total_row = data_start_row + len(summary_df)
-        copy_row_style(template_data_row, total_row)
+        # Write single data row (total only)
+        template_data_row = data_start_row
+        target_row = data_start_row
+        copy_row_style(template_data_row, target_row)
         
-        # Write "Total" label in the first data column (skip Area Name and ABM Name if present)
-        # Find the first numeric column after skipping Area/ABM Name columns
-        first_data_col = None
-        for col_name in ['ZBM Code', 'ZBM Name', 'Unique TBMs', 'Unique HCPs']:
-            if col_name in column_mapping:
-                first_data_col = column_mapping[col_name]
-                break
-        
-        if first_data_col:
-            try:
-                cell = ws.cell(row=total_row, column=first_data_col)
-                cell.value = "Total"
-                cell.font = Font(bold=True, name='Arial', size=10)
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-            except:
-                pass
-        
-        # Calculate and write totals
         for col_name, col_idx in column_mapping.items():
-            if col_name in summary_df.columns and col_name not in ['ZBM Code', 'ZBM Name']:
-                total_value = int(summary_df[col_name].sum())  # Ensure it's an integer
-                
-                print(f"      Writing Total '{col_name}' = {total_value} to column {col_idx}")
+            if col_name in summary_df.columns:
+                value = summary_df.iloc[0][col_name]
                 
                 try:
-                    cell = ws.cell(row=total_row, column=col_idx)
-                    cell.value = total_value
-                    cell.font = Font(bold=True, name='Arial', size=10)
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                    cell.number_format = '0'
-                except Exception as e:
-                    print(f"      Warning: Could not write total to cell ({total_row}, {col_idx}): {e}")
+                    cell = ws.cell(row=target_row, column=col_idx)
+                    cell.value = value
+                    
+                    if isinstance(value, (int, float)) and not pd.isna(value):
+                        cell.number_format = '0'
+                        cell.font = Font(bold=True, name='Arial', size=10)
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    else:
+                        cell.font = Font(bold=True, name='Arial', size=10)
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                except:
+                    pass
 
         # Save file
-        filename = f"Division_Summary_{div_code}_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
+        filename = f"Division_Summary_{div_code}_{safe_div_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         filepath = os.path.join(output_dir, filename)
         
         wb.save(filepath)
         print(f"   ✅ Created: {filename}")
-        
-        # Print summary statistics
-        print(f"   📊 Summary for Division {div_code}:")
-        print(f"      Total ZBMs: {len(summary_df)}")
-        print(f"      Total Unique TBMs: {summary_df['Unique TBMs'].sum()}")
-        print(f"      Total Unique HCPs: {summary_df['Unique HCPs'].sum()}")
-        print(f"      Total Requests Raised: {summary_df['Requests Raised'].sum()}")
-        print(f"      Total Delivered: {summary_df['Delivered'].sum()}")
-        print(f"      Total RTO: {summary_df['RTO'].sum()}")
         
     except Exception as e:
         print(f"   ❌ Error creating Excel report for Division {div_code}: {e}")
