@@ -75,7 +75,7 @@ try:
     print(f"📋 Columns in file: {list(division_emails_df.columns)}")
 except Exception as e:
     print(f"❌ Error reading division email mapping file: {e}")
-    print("Please ensure you have a file named 'division_emails.xlsx' with columns 'Division' and 'Email'")
+    print("Please ensure you have a file named 'division_emails.xlsx' with columns 'Division Name' and 'Email'")
     exit(1)
 
 # Read ZBM Automation Email file to get division details
@@ -151,7 +151,12 @@ def read_summary_report(div_code, div_name):
             headers.append(str(header_val).strip())
             # Get background color
             if cell.fill.start_color and cell.fill.start_color.rgb:
-                header_colors.append(cell.fill.start_color.rgb)
+                rgb_value = cell.fill.start_color.rgb
+                # Ensure it's a string
+                if isinstance(rgb_value, str):
+                    header_colors.append(rgb_value)
+                else:
+                    header_colors.append(None)
             else:
                 header_colors.append(None)
 
@@ -209,7 +214,7 @@ def read_summary_report(div_code, div_name):
         html_table += '  <thead>\n    <tr style="background-color: #D3D3D3; font-weight: bold; text-align: center;">\n'
         for i, header in enumerate(headers):
             bg_color = ""
-            if header_colors[i]:
+            if header_colors[i] and isinstance(header_colors[i], str):
                 # Convert hex color if needed
                 hex_color = header_colors[i]
                 if hex_color.startswith('FF'):
@@ -291,7 +296,7 @@ for _, div_row in divisions.iterrows():
     print(f"\n🔄 Processing Division: {div_code} - {affiliate} - {div_name}")
     
     # Find email for this division
-    div_email_row = division_emails_df[division_emails_df['Division'] == div_code]
+    div_email_row = division_emails_df[division_emails_df['Division Name'] == div_code]
     
     if div_email_row.empty:
         print(f"   ⚠️ No email found for Division {div_code}")
@@ -339,15 +344,41 @@ for _, div_row in divisions.iterrows():
     # Get ABM emails for CC
     abm_cc_emails = get_abm_emails_for_division(div_code)
     
+    # Build CC list based on affiliate
+    cc_list = []
+    
+    # Add affiliate-specific emails
+    if affiliate == 'AIL':
+        cc_list.extend(['ishan.mithbavkar@abbott.com', 'ashwini.suryavanshi@abbott.com'])
+    elif affiliate == 'APC':
+        cc_list.extend(['jenita.nadar@abbott.com', 'ashwini.suryavanshi@abbott.com'])
+    elif affiliate == 'ASC':
+        cc_list.extend(['sandesh.bhoir@abbott.com', 'ashwini.suryavanshi@abbott.com'])
+    
+    # Always add sandesh.bhoir@abbott.com if not already added
+    if 'sandesh.bhoir@abbott.com' not in cc_list:
+        cc_list.append('sandesh.bhoir@abbott.com')
+    
+    # Add ABM emails
+    if abm_cc_emails:
+        cc_list.extend(abm_cc_emails.split('; '))
+    
+    # Remove duplicates and join
+    cc_list = list(set(cc_list))
+    final_cc = '; '.join(cc_list)
+    
     # Create email
     try:
         mail = outlook.CreateItem(0)
         mail.To = div_email
         
-        # Add ABMs in CC (uncomment if needed)
-        # if abm_cc_emails:
-        #     mail.CC = abm_cc_emails
-        #     print(f"   📧 CC: {len(abm_cc_emails.split(';'))} ABMs")
+        # Add CC recipients
+        if final_cc:
+            mail.CC = final_cc
+            print(f"   📧 CC: {final_cc}")
+        
+        # Set BCC
+        mail.BCC = 'vaibhav.nalawade@abbott.com;kranti.vengurlekar@abbott.com'
         
         # Set subject
         mail.Subject = f"Sample Direct Dispatch - Division Summary Report as of {current_date}"
@@ -382,6 +413,8 @@ for _, div_row in divisions.iterrows():
         # Log the sent email
         with open(os.path.join(email_log_folder, 'email_log.txt'), 'a') as log:
             log.write(f"{dt.now()} - Displayed email for Division {div_code} ({div_name}) - {div_email}\n")
+            log.write(f"   CC: {final_cc}\n")
+            log.write(f"   BCC: vaibhav.nalawade@abbott.com;kranti.vengurlekar@abbott.com\n\n")
         
     except Exception as e:
         print(f"   ❌ Error creating email for Division {div_code}: {e}")
