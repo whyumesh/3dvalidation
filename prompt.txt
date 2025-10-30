@@ -7,15 +7,22 @@
 
 
 # Add this in the column_mapping section, after the "Doctor Refused to Accept" mapping
-# Around line 289 in your code
+# Replace the RTO and related mappings section in your column_mapping code
+# The order matters - check specific columns before general ones!
 
+                elif 'Delivered' in header_str:
+                    column_mapping['Delivered'] = col_idx
+                # Check for "Hold Delivery" BEFORE checking for "RTO"
+                elif 'Hold Delivery' in header_str or ('hold delivery' in header_str.lower() and 'RTO' in header_str):
+                    column_mapping['Hold Delivery'] = col_idx
+                elif 'RTO' in header_str and 'hold' not in header_str.lower():
+                    column_mapping['RTO'] = col_idx
+                elif 'Incomplete Address' in header_str:
+                    column_mapping['Incomplete Address'] = col_idx
+                elif 'Non contactable' in header_str:
+                    column_mapping['Doctor Non Contactable'] = col_idx
                 elif 'refused to accept' in header_str:
                     column_mapping['Doctor Refused to Accept'] = col_idx
-                elif 'Hold Delivery' in header_str or 'hold delivery' in header_str.lower():
-                    column_mapping['Hold Delivery'] = col_idx
-                # You can also try these alternative patterns if the above doesn't work:
-                # elif 'RTO due to hold delivery' in header_str:
-                #     column_mapping['Hold Delivery'] = col_idx
 
 
 
