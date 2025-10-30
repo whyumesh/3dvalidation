@@ -1,3 +1,27 @@
+
+
+
+
+
+
+
+
+# Add this in the column_mapping section, after the "Doctor Refused to Accept" mapping
+# Around line 289 in your code
+
+                elif 'refused to accept' in header_str:
+                    column_mapping['Doctor Refused to Accept'] = col_idx
+                elif 'Hold Delivery' in header_str or 'hold delivery' in header_str.lower():
+                    column_mapping['Hold Delivery'] = col_idx
+                # You can also try these alternative patterns if the above doesn't work:
+                # elif 'RTO due to hold delivery' in header_str:
+                #     column_mapping['Hold Delivery'] = col_idx
+
+
+
+
+
+
 Affiliate	Division Code	Division Name	Email id	Team
 the above are the four columns in Division mail file. send the summary report and consolidated file to 
 every Email id under that Division Code. and the logic below, the aff_name you will get in Affiliate column.
