@@ -424,7 +424,10 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                     column_mapping['Request Cancelled Out of Stock'] = col_idx
                 elif 'Delivered' in header_str:
                     column_mapping['Delivered'] = col_idx
-                elif 'RTO' in header_str:
+                # Check for "Hold Delivery" BEFORE checking for "RTO"
+                elif 'Hold Delivery' in header_str or ('hold delivery' in header_str.lower() and 'RTO' in header_str):
+                    column_mapping['Hold Delivery'] = col_idx
+                elif 'RTO' in header_str and 'hold' not in header_str.lower():
                     column_mapping['RTO'] = col_idx
                 elif 'Incomplete Address' in header_str:
                     column_mapping['Incomplete Address'] = col_idx
