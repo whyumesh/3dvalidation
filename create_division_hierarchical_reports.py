@@ -314,20 +314,18 @@ def create_division_hierarchical_reports():
             'Affiliate': affiliate,
             'Division': div_code,
             'Division Name': div_name,
-            'Area Name': f"Division {div_code} - {affiliate} - {div_name}",
-            'ABM Name': 'Total',
-            'Unique TBMs': unique_tbms,
-            'Unique HCPs': unique_hcps,
-            'Requests Raised': requests_raised,
-            'Request Cancelled Out of Stock': request_cancelled_out_of_stock,
-            'Action Pending at HO': action_pending_at_ho,
-            'Sent to HUB': sent_to_hub,
-            'Pending for Invoicing': pending_for_invoicing,
-            'Pending for Dispatch': pending_for_dispatch,
-            'Requests Dispatched': requests_dispatched,
-            'Delivered': delivered,
-            'Dispatched In Transit': dispatched_in_transit,
-            'RTO': rto_total,
+            '# Unique TBMs': unique_tbms,
+            '# Unique HCPs': unique_hcps,
+            '# Requests Raised\n(A+B+C)': requests_raised,
+            'Request Cancelled / Out of Stock (A)': request_cancelled_out_of_stock,
+            'Action pending / In Process At HO (B)': action_pending_at_ho,
+            "Sent to HUB ('C)\n(D+E+F)": sent_to_hub,
+            'Pending for Invoicing (D)': pending_for_invoicing,
+            'Pending for Dispatch (E)': pending_for_dispatch,
+            '# Requests Dispatched (F)\n(G+H+I)': requests_dispatched,
+            'Delivered (G)': delivered,
+            'Dispatched & In Transit (H)': dispatched_in_transit,
+            'RTO (I)': rto_total,
             'Incomplete Address': incomplete_address,
             'Doctor Non Contactable': doctor_non_contactable,
             'Doctor Refused to Accept': doctor_refused_to_accept,
@@ -339,7 +337,7 @@ def create_division_hierarchical_reports():
         
         # Validate Division total
         div_total_requests = div_data['Assigned Request Ids'].nunique()
-        div_summary_total = div_summary_df['Requests Raised'].sum()
+        div_summary_total = div_summary_df['# Requests Raised\n(A+B+C)'].sum()
         
         if div_total_requests != div_summary_total:
             print(f"      WARNING: Division {div_code} total mismatch!")
@@ -359,12 +357,27 @@ def create_division_hierarchical_reports():
         print(f"✅ All tallies match perfectly!")
 
 def create_division_excel_report(div_code, affiliate, div_name, summary_df, output_dir):
-    """Create Excel report for a specific Division with perfect formatting"""
+    """Create Excel report for a specific Division with perfect formatting based on CSV template"""
     
     try:
-        # Load template
-        wb = load_workbook('division summary.xlsx')
-        ws = wb.active  # Use the active sheet
+        # Load template - try CSV first, then Excel
+        template_file = 'division summary.csv'
+        if not os.path.exists(template_file):
+            template_file = 'division summary.xlsx'
+        
+        if template_file.endswith('.csv'):
+            # Read CSV and convert to Excel
+            template_df = pd.read_csv(template_file, header=None)
+            wb = load_workbook(filename=None)
+            ws = wb.active
+            
+            # Write CSV data to worksheet
+            for r_idx, row in enumerate(template_df.values, start=1):
+                for c_idx, value in enumerate(row, start=1):
+                    ws.cell(row=r_idx, column=c_idx, value=value)
+        else:
+            wb = load_workbook(template_file)
+            ws = wb.active
 
         def get_cell_value_handling_merged(row, col):
             """Get cell value even if it's part of a merged cell"""
@@ -379,7 +392,7 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             
             return cell.value
         
-        # Search for header row
+        # Search for header row containing "Affiliate"
         header_row = None
         for row_idx in range(1, 15):
             for col_idx in range(1, min(30, ws.max_column + 1)):
@@ -391,7 +404,18 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 break
         
         if header_row is None:
-            header_row = 5  # Default to row 5 based on template structure
+            header_row = 3  # Default based on CSV template structure (row 3)
+        
+        # Find "Total" row
+        total_row = None
+        for row_idx in range(header_row + 1, min(header_row + 20, ws.max_row + 1)):
+            cell_value = get_cell_value_handling_merged(row_idx, 1)
+            if cell_value and 'Total' in str(cell_value):
+                total_row = row_idx
+                break
+        
+        if total_row is None:
+            total_row = header_row + 6  # Default position
         
         data_start_row = header_row + 1
         
@@ -402,43 +426,48 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             if header_val:
                 header_str = str(header_val).strip()
                 
+                # Map columns based on template
                 if 'Affiliate' in header_str:
                     column_mapping['Affiliate'] = col_idx
                 elif 'Division' in header_str and 'Name' not in header_str:
                     column_mapping['Division'] = col_idx
                 elif 'Division Name' in header_str:
                     column_mapping['Division Name'] = col_idx
-                elif 'TBMs' in header_str or '# TBMs' in header_str:
-                    column_mapping['Unique TBMs'] = col_idx
+                elif 'TBMs' in header_str or '# Unique TBMs' in header_str:
+                    column_mapping['# Unique TBMs'] = col_idx
                 elif 'HCPs' in header_str or '# Unique HCPs' in header_str:
-                    column_mapping['Unique HCPs'] = col_idx
-                elif 'Requests raised' in header_str or '# Requests raised' in header_str:
-                    column_mapping['Requests Raised'] = col_idx
-                elif 'dispatched' in header_str and 'In Transit' not in header_str:
-                    column_mapping['Requests Dispatched'] = col_idx
+                    column_mapping['# Unique HCPs'] = col_idx
+                elif 'Requests Raised' in header_str or 'Requests raised' in header_str:
+                    column_mapping['# Requests Raised\n(A+B+C)'] = col_idx
+                elif 'Out of Stock' in header_str or 'Out of stock' in header_str:
+                    column_mapping['Request Cancelled / Out of Stock (A)'] = col_idx
                 elif 'Action pending' in header_str and 'HO' in header_str:
-                    column_mapping['Action Pending at HO'] = col_idx
-                elif 'Dispatched & In Transit' in header_str:
-                    column_mapping['Dispatched In Transit'] = col_idx
-                elif 'Out of stock' in header_str:
-                    column_mapping['Request Cancelled Out of Stock'] = col_idx
-                elif 'Delivered' in header_str:
-                    column_mapping['Delivered'] = col_idx
-                # Check for "Hold Delivery" BEFORE checking for "RTO"
-                elif 'Hold Delivery' in header_str or ('hold delivery' in header_str.lower() and 'RTO' in header_str):
-                    column_mapping['Hold Delivery'] = col_idx
-                elif 'RTO' in header_str and 'hold' not in header_str.lower():
-                    column_mapping['RTO'] = col_idx
+                    column_mapping['Action pending / In Process At HO (B)'] = col_idx
+                elif 'Sent to HUB' in header_str:
+                    column_mapping["Sent to HUB ('C)\n(D+E+F)"] = col_idx
+                elif 'Pending for Invoicing' in header_str:
+                    column_mapping['Pending for Invoicing (D)'] = col_idx
+                elif 'Pending for Dispatch' in header_str:
+                    column_mapping['Pending for Dispatch (E)'] = col_idx
+                elif 'Requests Dispatched' in header_str and 'In Transit' not in header_str:
+                    column_mapping['# Requests Dispatched (F)\n(G+H+I)'] = col_idx
+                elif 'Delivered' in header_str and '(' in header_str:
+                    column_mapping['Delivered (G)'] = col_idx
+                elif 'Dispatched & In Transit' in header_str or 'Dispatched &amp; In Transit' in header_str:
+                    column_mapping['Dispatched & In Transit (H)'] = col_idx
+                elif 'RTO' in header_str and '(' in header_str and 'Hold' not in header_str:
+                    column_mapping['RTO (I)'] = col_idx
                 elif 'Incomplete Address' in header_str:
                     column_mapping['Incomplete Address'] = col_idx
-                elif 'Non contactable' in header_str:
+                elif 'Doctor Non Contactable' in header_str or 'Non Contactable' in header_str:
                     column_mapping['Doctor Non Contactable'] = col_idx
-                elif 'refused to accept' in header_str:
+                elif 'Refused to Accept' in header_str or 'refused to accept' in header_str:
                     column_mapping['Doctor Refused to Accept'] = col_idx
-        
-        # Clear existing data rows
-        max_clear_rows = max(len(summary_df) + 10, 50)
-        for r in range(data_start_row, data_start_row + max_clear_rows):
+                elif 'Hold Delivery' in header_str:
+                    column_mapping['Hold Delivery'] = col_idx
+
+        # Clear existing data rows (between header and total)
+        for r in range(data_start_row, total_row):
             for c in range(1, ws.max_column + 1):
                 try:
                     cell = ws.cell(row=r, column=c)
@@ -465,17 +494,18 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 except:
                     pass
 
-        # Write single data row (total only)
-        template_data_row = data_start_row
-        target_row = data_start_row
-        copy_row_style(template_data_row, target_row)
+        # Write data to Total row with values
+        copy_row_style(total_row, total_row)
+        
+        # Set "Total" text in first column
+        ws.cell(row=total_row, column=1, value="Total")
         
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns:
                 value = summary_df.iloc[0][col_name]
                 
                 try:
-                    cell = ws.cell(row=target_row, column=col_idx)
+                    cell = ws.cell(row=total_row, column=col_idx)
                     cell.value = value
                     
                     if isinstance(value, (int, float)) and not pd.isna(value):
@@ -485,8 +515,8 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                     else:
                         cell.font = Font(bold=True, name='Arial', size=10)
                         cell.alignment = Alignment(horizontal='center', vertical='center')
-                except:
-                    pass
+                except Exception as e:
+                    print(f"   Warning: Could not set value for column {col_name}: {e}")
 
         # Save file
         safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
@@ -503,3 +533,5 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
 
 if __name__ == "__main__":
     create_division_hierarchical_reports()
+        
+   
