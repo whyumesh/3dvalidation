@@ -6,29 +6,19 @@ import os
 from datetime import datetime
 
 def create_division_excel_report(div_code, affiliate, div_name, summary_df, output_dir):
-    """Create Excel report for a specific Division with perfect formatting based on CSV template"""
+    """Create Excel report for a specific Division with perfect formatting based on Excel template"""
     
     try:
-        # Load template - try CSV first, then Excel
-        template_file = 'division summary.csv'
-        if not os.path.exists(template_file):
-            template_file = 'division summary.xlsx'
+        # Load Excel template file (not CSV)
+        template_file = 'division summary.xlsx'
         
-        if template_file.endswith('.csv'):
-            # Read CSV and convert to Excel
-            template_df = pd.read_csv(template_file, header=None)
-            
-            # Create a NEW workbook instead of loading None
-            wb = Workbook()
-            ws = wb.active
-            
-            # Write CSV data to worksheet
-            for r_idx, row in enumerate(template_df.values, start=1):
-                for c_idx, value in enumerate(row, start=1):
-                    ws.cell(row=r_idx, column=c_idx, value=value)
-        else:
-            wb = load_workbook(template_file)
-            ws = wb.active
+        if not os.path.exists(template_file):
+            print(f"   ❌ Template file not found: {template_file}")
+            return
+        
+        # Load the Excel template to preserve formatting
+        wb = load_workbook(template_file)
+        ws = wb.active
 
         def get_cell_value_handling_merged(row, col):
             """Get cell value even if it's part of a merged cell"""
