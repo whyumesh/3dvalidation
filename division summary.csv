@@ -1,0 +1,12 @@
+﻿,,,,,,,,,,,,,,,,,,
+,,,,,,HO,,,HUB,,,Delivery Status,,,RTO Reasons,,,
+Affiliate,Division,Division Name,# Unique TBMs,# Unique HCPs,"# Requests Raised
+(A+B+C)",Request Cancelled / Out of Stock (A),Action pending / In Process At HO (B),"Sent to HUB ('C)
+(D+E+F)",Pending for Invoicing (D),Pending for Dispatch (E),"# Requests Dispatched (F)
+(G+H+I)",Delivered (G),Dispatched & In Transit (H),RTO (I),Incomplete Address,Doctor Non Contactable,Doctor Refused to Accept,Hold Delivery
+,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,,
+,,Total,,,,,,,,,,,,,,,,
