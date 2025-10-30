@@ -1,0 +1,16 @@
+Affiliate	Division Code	Division Name	Email id	Team
+the above are the four columns in Division mail file. send the summary report and consolidated file to 
+every Email id under that Division Code. and the logic below, the aff_name you will get in Affiliate column.
+  if aff_name == 'AIL':
+        mail.cc = 'ishan.mithbavkar@abbott.com;ashwini.suryavanshi@abbott.com,sandesh.bhoir@abbott.com'
+    elif aff_name == 'APC':
+       mail.cc = 'jenita.nadar@abbott.com;ashwini.suryavanshi@abbott.com,sandesh.bhoir@abbott.com'
+    elif aff_name == 'ASC':
+        mail.cc = 'sandesh.bhoir@abbott.com;ashwini.suryavanshi@abbott.com,sandesh.bhoir@abbott.com'
+    mail.bCC = 'vaibhav.nalawade@abbott.com;kranti.vengurlekar@abbott.com'
+    mail.Subject = f"{div_name}: Sample Direct Dispatch to Doctors - Request Status as of {current_date}"
+    mail.HTMLBody = email_html
+    mail.SentOnBehalfOfName = 'EPD_SFA@abbott.com'
+
+so, in short you have to send summary and consolidated in attachment in To all the Email id under that 
+Division Code, also check in the Affiliate column for Affiliate name to get done the above sample code logic of cc mail
