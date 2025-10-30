@@ -1,4 +1,3 @@
-# ```python
 import pandas as pd
 import os
 from jinja2 import Environment, FileSystemLoader
@@ -68,14 +67,22 @@ else:
 # Read Division Email Mapping file
 print("📖 Reading Division Email Mapping file...")
 try:
-    # You need to provide the filename of your division email mapping file
-    # Replace 'division_emails.xlsx' with your actual filename
+    # Read the division email mapping file with updated column structure
     division_emails_df = pd.read_excel('division_emails.xlsx')
     print(f"✅ Successfully loaded division email mapping")
     print(f"📋 Columns in file: {list(division_emails_df.columns)}")
+    
+    # Verify required columns exist
+    required_columns = ['Affiliate', 'Division Code', 'Division Name', 'Email id']
+    missing_columns = [col for col in required_columns if col not in division_emails_df.columns]
+    if missing_columns:
+        print(f"⚠️ Warning: Missing columns: {missing_columns}")
+        print("Please ensure your file has columns: 'Affiliate', 'Division Code', 'Division Name', 'Email id', 'Team'")
+        
 except Exception as e:
     print(f"❌ Error reading division email mapping file: {e}")
-    print("Please ensure you have a file named 'division_emails.xlsx' with columns 'Division Name' and 'Email'")
+    print("Please ensure you have a file named 'division_emails.xlsx' with columns:")
+    print("'Affiliate', 'Division Code', 'Division Name', 'Email id', 'Team'")
     exit(1)
 
 # Read ZBM Automation Email file to get division details
@@ -288,6 +295,8 @@ def get_abm_emails_for_division(div_code):
 
 # Process each Division and send emails
 email_count = 0
+total_recipients = 0
+
 for _, div_row in divisions.iterrows():
     div_code = div_row['TBM Division']
     affiliate = div_row['AFFILIATE']
@@ -295,21 +304,26 @@ for _, div_row in divisions.iterrows():
     
     print(f"\n🔄 Processing Division: {div_code} - {affiliate} - {div_name}")
     
-    # Find email for this division
-    div_email_row = division_emails_df[division_emails_df['Division Name'] == div_code]
+    # Find ALL email addresses for this division code
+    div_email_rows = division_emails_df[division_emails_df['Division Code'] == div_code]
     
-    if div_email_row.empty:
-        print(f"   ⚠️ No email found for Division {div_code}")
+    if div_email_rows.empty:
+        print(f"   ⚠️ No emails found for Division Code {div_code}")
         continue
     
-    div_email = div_email_row['Email'].iloc[0]
+    # Get all valid email addresses for this division
+    all_emails = []
+    for _, email_row in div_email_rows.iterrows():
+        email_addr = email_row['Email id']
+        # Skip if no valid email
+        if email_addr and str(email_addr) not in ['0', '0.0', '']:
+            all_emails.append(str(email_addr).strip())
     
-    # Skip if no valid email
-    if not div_email or str(div_email) in ['0', '0.0']:
-        print(f"   ⚠️ Skipping - No valid email address")
+    if not all_emails:
+        print(f"   ⚠️ No valid email addresses found for Division Code {div_code}")
         continue
     
-    print(f"   📧 Email: {div_email}")
+    print(f"   📧 Found {len(all_emails)} recipient(s): {', '.join(all_emails)}")
     
     # Find consolidated file for this Division
     safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
@@ -332,7 +346,6 @@ for _, div_row in divisions.iterrows():
         continue
     
     print(f"   📎 Attaching: {os.path.basename(consolidated_file)}")
-    print(f"      Full path: {consolidated_file}")
     
     # Read summary report data
     summary_html = read_summary_report(div_code, div_name)
@@ -367,10 +380,12 @@ for _, div_row in divisions.iterrows():
     cc_list = list(set(cc_list))
     final_cc = '; '.join(cc_list)
     
-    # Create email
+    # Create email with ALL recipients in TO field
     try:
         mail = outlook.CreateItem(0)
-        mail.To = div_email
+        
+        # Add ALL email addresses to TO field (semicolon-separated)
+        mail.To = '; '.join(all_emails)
         
         # Add CC recipients
         if final_cc:
@@ -381,7 +396,7 @@ for _, div_row in divisions.iterrows():
         mail.BCC = 'vaibhav.nalawade@abbott.com;kranti.vengurlekar@abbott.com'
         
         # Set subject
-        mail.Subject = f"Sample Direct Dispatch - Division Summary Report as of {current_date}"
+        mail.Subject = f"{div_name}: Sample Direct Dispatch to Doctors - Request Status as of {current_date}"
         
         # Render email body with summary table
         mail.HTMLBody = template.render(
@@ -408,11 +423,13 @@ for _, div_row in divisions.iterrows():
         mail.Display()
         
         email_count += 1
-        print(f"   ✅ Email displayed successfully for {div_email}")
+        total_recipients += len(all_emails)
+        print(f"   ✅ Email displayed successfully for {len(all_emails)} recipient(s)")
         
         # Log the sent email
         with open(os.path.join(email_log_folder, 'email_log.txt'), 'a') as log:
-            log.write(f"{dt.now()} - Displayed email for Division {div_code} ({div_name}) - {div_email}\n")
+            log.write(f"{dt.now()} - Displayed email for Division {div_code} ({div_name})\n")
+            log.write(f"   TO: {'; '.join(all_emails)}\n")
             log.write(f"   CC: {final_cc}\n")
             log.write(f"   BCC: vaibhav.nalawade@abbott.com;kranti.vengurlekar@abbott.com\n\n")
         
@@ -423,5 +440,5 @@ for _, div_row in divisions.iterrows():
         continue
 
 print(f"\n🎉 Email automation completed!")
-print(f"📊 Total emails displayed: {email_count} out of {len(divisions)} Divisions")
+print(f"📊 Total emails displayed: {email_count} for {total_recipients} total recipients")
 print(f"📁 Email logs saved in: {email_log_folder}")
