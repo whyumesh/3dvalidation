@@ -283,15 +283,7 @@ def read_summary_report(div_code, div_name):
         traceback.print_exc()
         return None
 
-def get_abm_emails_for_division(div_code):
-    """Get all ABM email addresses under a specific Division for CC"""
-    div_data = df[df['TBM Division'] == div_code]
-    abm_emails = div_data['ABM EMAIL_ID'].dropna().unique()
-    
-    # Filter out invalid emails (0, '0', empty strings)
-    abm_emails = [email for email in abm_emails if email and str(email) not in ['0', '0.0']]
-    
-    return '; '.join(abm_emails)
+# Removed ABM email function - using only specified CC emails from requirements
 
 # Process each Division and send emails
 email_count = 0
@@ -354,27 +346,19 @@ for _, div_row in divisions.iterrows():
         print(f"   ⚠️ No summary report data found for Division {div_code}")
         continue
     
-    # Get ABM emails for CC
-    abm_cc_emails = get_abm_emails_for_division(div_code)
-    
-    # Build CC list based on affiliate
+    # Build CC list based on affiliate - ONLY using specified emails from requirements
     cc_list = []
     
-    # Add affiliate-specific emails
+    # Add affiliate-specific emails ONLY
     if affiliate == 'AIL':
-        cc_list.extend(['ishan.mithbavkar@abbott.com', 'ashwini.suryavanshi@abbott.com'])
+        cc_list = ['ishan.mithbavkar@abbott.com', 'ashwini.suryavanshi@abbott.com', 'sandesh.bhoir@abbott.com']
     elif affiliate == 'APC':
-        cc_list.extend(['jenita.nadar@abbott.com', 'ashwini.suryavanshi@abbott.com'])
+        cc_list = ['jenita.nadar@abbott.com', 'ashwini.suryavanshi@abbott.com', 'sandesh.bhoir@abbott.com']
     elif affiliate == 'ASC':
-        cc_list.extend(['sandesh.bhoir@abbott.com', 'ashwini.suryavanshi@abbott.com'])
-    
-    # Always add sandesh.bhoir@abbott.com if not already added
-    if 'sandesh.bhoir@abbott.com' not in cc_list:
-        cc_list.append('sandesh.bhoir@abbott.com')
-    
-    # Add ABM emails
-    if abm_cc_emails:
-        cc_list.extend(abm_cc_emails.split('; '))
+        cc_list = ['sandesh.bhoir@abbott.com', 'ashwini.suryavanshi@abbott.com']
+    else:
+        # For any other affiliate, default to sandesh.bhoir@abbott.com
+        cc_list = ['sandesh.bhoir@abbott.com']
     
     # Remove duplicates and join
     cc_list = list(set(cc_list))
