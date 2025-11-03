@@ -6,7 +6,7 @@ Creates detailed consolidated files for each ZBM with specific columns from Samp
 
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 
 # Suppress pandas warnings
@@ -20,7 +20,7 @@ def create_zbm_consolidated_files():
     # Read Sample Master Tracker data
     print("📖 Reading Sample Master Tracker.xlsx...")
     try:
-        df = pd.read_excel('ZBM Automation Email 2410252.xlsx')
+        df = pd.read_excel('ZBM Automation Email 2810252.xlsx')
         print(f"✅ Successfully loaded {len(df)} records from Sample Master Tracker.xlsx")
     except Exception as e:
         print(f"❌ Error reading Sample Master Tracker.xlsx: {e}")
@@ -197,9 +197,12 @@ def create_zbm_consolidated_files():
         consolidated_data = consolidated_data.sort_values(['ABM Terr Code', 'Assigned Request Ids'])
         
         # Create filename
+        
         safe_zbm_name = str(zbm_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
-        filename = f"ZBM_Consolidated_{zbm_code}_{safe_zbm_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        yesterday = datetime.now() - timedelta(days=1)
+        filename = f"ZBM_Consolidated_{zbm_code}_{safe_zbm_name}_{yesterday.strftime('%Y%m%d')}.xlsx"
         filepath = os.path.join(output_dir, filename)
+
         
         # Save to Excel
         try:
