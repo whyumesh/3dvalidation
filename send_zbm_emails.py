@@ -69,8 +69,8 @@ else:
 print("📖 Reading Sample Master Tracker.xlsx...")
 df = pd.read_excel('Sample Master Tracker.xlsx')
 
-# Filter for ZBM codes starting with "ZN"
-df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
+# # Filter for ZBM codes starting with "ZN"
+# df = df[df['ZBM Terr Code'].astype(str).str.startswith('ZN')]
 
 # Get unique ZBMs with their details
 zbms = df[['ZBM Terr Code', 'ZBM Name', 'ZBM EMAIL_ID']].drop_duplicates().sort_values('ZBM Terr Code')
@@ -191,16 +191,18 @@ def read_summary_report(zbm_code, zbm_name):
         # Build HTML table with matching Excel formatting
         html_table = '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px;">\n'
         
-        # Add header row
+       # Add header row
         html_table += '  <thead>\n    <tr style="background-color: #D3D3D3; font-weight: bold; text-align: center;">\n'
         for i, header in enumerate(headers):
             bg_color = ""
-            if header_colors[i]:
-                # Convert hex color if needed
-                hex_color = header_colors[i]
+            color_value = header_colors[i]
+            
+            if isinstance(color_value, str):
+                hex_color = color_value
                 if hex_color.startswith('FF'):
                     hex_color = '#' + hex_color[2:]
                 bg_color = f' background-color: {hex_color};'
+            
             html_table += f'      <th style="{bg_color} padding: 8px; border: 1px solid #000;">{header}</th>\n'
         html_table += '    </tr>\n  </thead>\n'
         
