@@ -6,10 +6,29 @@ import os
 from datetime import datetime
 
 def create_division_excel_report(div_code, affiliate, div_name, summary_df, detail_df, output_dir):
-    """Create Excel report for a specific Division with ZBM details and perfect formatting"""
+    """
+    Create Excel report for a specific Division with ZBM details and perfect formatting based on Excel template
+    
+    Parameters:
+    -----------
+    div_code : str
+        Division code identifier
+    affiliate : str
+        Affiliate name
+    div_name : str
+        Division name
+    summary_df : pandas.DataFrame
+        DataFrame containing division-level summary (total) data
+    detail_df : pandas.DataFrame
+        DataFrame containing ZBM-level detailed data with columns including:
+        'ZBM Terr Code', 'ZBM Name', 'Affiliate', 'Division', 'Division Name',
+        and all metric columns
+    output_dir : str
+        Output directory path for saving the Excel file
+    """
     
     try:
-        # Load Excel template file (not CSV)
+        # Load Excel template file
         template_file = 'division summary.xlsx'
         
         if not os.path.exists(template_file):
@@ -33,58 +52,60 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, deta
             
             return cell.value
         
-        # Search for header row containing "Affiliate"
+        # Search for header row containing "Affiliate" or "ZBM"
         header_row = None
         for row_idx in range(1, 15):
             for col_idx in range(1, min(30, ws.max_column + 1)):
                 cell_value = get_cell_value_handling_merged(row_idx, col_idx)
-                if cell_value and 'Affiliate' in str(cell_value):
+                if cell_value and ('Affiliate' in str(cell_value) or 'ZBM' in str(cell_value)):
                     header_row = row_idx
                     break
             if header_row:
                 break
         
         if header_row is None:
-            header_row = 3  # Default based on CSV template structure (row 3)
+            header_row = 3  # Default fallback
+            print(f"   ⚠️  Warning: Header row not found, using default row {header_row}")
         
         # Find "Total" row
         total_row = None
-        for row_idx in range(header_row + 1, min(header_row + 50, ws.max_row + 1)):
+        for row_idx in range(header_row + 1, min(header_row + 100, ws.max_row + 1)):
             cell_value = get_cell_value_handling_merged(row_idx, 1)
             if cell_value and 'Total' in str(cell_value):
                 total_row = row_idx
                 break
         
         if total_row is None:
-            total_row = header_row + 20  # Default position (increased for more data rows)
+            total_row = header_row + 50  # Default position with enough space for ZBM rows
+            print(f"   ⚠️  Warning: Total row not found, using default row {total_row}")
         
         data_start_row = header_row + 1
         
         # Read actual column positions from template header row
         column_mapping = {}
-        for col_idx in range(1, min(30, ws.max_column + 1)):
+        for col_idx in range(1, min(50, ws.max_column + 1)):
             header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
                 header_str = str(header_val).strip()
                 
-                # Map columns based on template
+                # Map columns based on template (order matters for priority)
                 if 'ZBM Terr Code' in header_str or 'ZBM Territory Code' in header_str:
                     column_mapping['ZBM Terr Code'] = col_idx
-                elif 'ZBM Name' in header_str:
+                elif 'ZBM Name' in header_str and 'ZBM Terr Code' not in header_str:
                     column_mapping['ZBM Name'] = col_idx
                 elif 'Affiliate' in header_str:
                     column_mapping['Affiliate'] = col_idx
-                elif 'Division' in header_str and 'Name' not in header_str:
-                    column_mapping['Division'] = col_idx
                 elif 'Division Name' in header_str:
                     column_mapping['Division Name'] = col_idx
-                elif 'TBMs' in header_str or '# Unique TBMs' in header_str:
+                elif 'Division' in header_str and 'Name' not in header_str:
+                    column_mapping['Division'] = col_idx
+                elif '# Unique TBMs' in header_str or 'Unique TBMs' in header_str:
                     column_mapping['# Unique TBMs'] = col_idx
-                elif 'HCPs' in header_str or '# Unique HCPs' in header_str:
+                elif '# Unique HCPs' in header_str or 'Unique HCPs' in header_str:
                     column_mapping['# Unique HCPs'] = col_idx
-                elif 'Requests Raised' in header_str or 'Requests raised' in header_str:
+                elif '# Requests Raised' in header_str or 'Requests Raised' in header_str or 'Requests raised' in header_str:
                     column_mapping['# Requests Raised\n(A+B+C)'] = col_idx
-                elif 'Out of Stock' in header_str or 'Out of stock' in header_str:
+                elif ('Out of Stock' in header_str or 'Out of stock' in header_str) and 'Cancelled' in header_str:
                     column_mapping['Request Cancelled / Out of Stock (A)'] = col_idx
                 elif 'Action pending' in header_str and 'HO' in header_str:
                     column_mapping['Action pending / In Process At HO (B)'] = col_idx
@@ -94,13 +115,13 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, deta
                     column_mapping['Pending for Invoicing (D)'] = col_idx
                 elif 'Pending for Dispatch' in header_str:
                     column_mapping['Pending for Dispatch (E)'] = col_idx
-                elif 'Requests Dispatched' in header_str and 'In Transit' not in header_str:
+                elif '# Requests Dispatched' in header_str and 'In Transit' not in header_str:
                     column_mapping['# Requests Dispatched (F)\n(G+H+I)'] = col_idx
-                elif 'Delivered' in header_str and '(' in header_str:
+                elif 'Delivered' in header_str and '(G)' in header_str:
                     column_mapping['Delivered (G)'] = col_idx
-                elif 'Dispatched & In Transit' in header_str or 'Dispatched &amp; In Transit' in header_str:
+                elif ('Dispatched & In Transit' in header_str or 'Dispatched &amp; In Transit' in header_str) and '(H)' in header_str:
                     column_mapping['Dispatched & In Transit (H)'] = col_idx
-                elif 'RTO' in header_str and '(' in header_str and 'Hold' not in header_str:
+                elif 'RTO' in header_str and '(I)' in header_str:
                     column_mapping['RTO (I)'] = col_idx
                 elif 'Incomplete Address' in header_str:
                     column_mapping['Incomplete Address'] = col_idx
@@ -111,9 +132,12 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, deta
                 elif 'Hold Delivery' in header_str:
                     column_mapping['Hold Delivery'] = col_idx
 
+        print(f"   📊 Mapped {len(column_mapping)} columns from template")
+
         # Clear existing data rows (between header and total)
+        rows_to_clear = total_row - data_start_row
         for r in range(data_start_row, total_row):
-            for c in range(1, ws.max_column + 1):
+            for c in range(1, min(50, ws.max_column + 1)):
                 try:
                     cell = ws.cell(row=r, column=c)
                     cell.value = None
@@ -122,7 +146,7 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, deta
 
         def copy_row_style(src_row_idx, dst_row_idx):
             """Copy formatting from source row to destination row"""
-            for c in range(1, ws.max_column + 1):
+            for c in range(1, min(50, ws.max_column + 1)):
                 try:
                     src = ws.cell(row=src_row_idx, column=c)
                     dst = ws.cell(row=dst_row_idx, column=c)
@@ -139,94 +163,148 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, deta
                 except:
                     pass
 
-        # Group detail_df by ZBM and calculate unique counts
+        # Process and write ZBM-level data
+        current_row = data_start_row
+        
         if detail_df is not None and not detail_df.empty:
-            # Ensure we have the required columns
-            zbm_columns = ['ZBM Terr Code', 'ZBM Name']
+            # Verify required columns exist
+            required_cols = ['ZBM Terr Code', 'ZBM Name']
+            missing_cols = [col for col in required_cols if col not in detail_df.columns]
             
-            # Group by ZBM Terr Code and ZBM Name
-            zbm_grouped = detail_df.groupby(zbm_columns, dropna=False).agg({
-                'Affiliate': 'first',
-                'Division': 'first',
-                'Division Name': 'first',
-                '# Unique TBMs': 'sum',
-                '# Unique HCPs': 'sum',
-                '# Requests Raised\n(A+B+C)': 'sum',
-                'Request Cancelled / Out of Stock (A)': 'sum',
-                'Action pending / In Process At HO (B)': 'sum',
-                "Sent to HUB ('C)\n(D+E+F)": 'sum',
-                'Pending for Invoicing (D)': 'sum',
-                'Pending for Dispatch (E)': 'sum',
-                '# Requests Dispatched (F)\n(G+H+I)': 'sum',
-                'Delivered (G)': 'sum',
-                'Dispatched & In Transit (H)': 'sum',
-                'RTO (I)': 'sum',
-                'Incomplete Address': 'sum',
-                'Doctor Non Contactable': 'sum',
-                'Doctor Refused to Accept': 'sum',
-                'Hold Delivery': 'sum'
-            }).reset_index()
-            
-            # Write ZBM-level data rows
-            current_row = data_start_row
-            for idx, row_data in zbm_grouped.iterrows():
-                copy_row_style(data_start_row, current_row)
+            if missing_cols:
+                print(f"   ⚠️  Warning: Missing columns in detail_df: {missing_cols}")
+            else:
+                # Group by ZBM and aggregate metrics
+                groupby_cols = ['ZBM Terr Code', 'ZBM Name']
                 
-                for col_name, col_idx in column_mapping.items():
-                    if col_name in row_data.index:
-                        value = row_data[col_name]
+                # Define aggregation dictionary for all possible columns
+                agg_dict = {}
+                
+                # Static columns (take first value)
+                static_cols = ['Affiliate', 'Division', 'Division Name']
+                for col in static_cols:
+                    if col in detail_df.columns:
+                        agg_dict[col] = 'first'
+                
+                # Metric columns (sum)
+                metric_cols = [
+                    '# Unique TBMs',
+                    '# Unique HCPs',
+                    '# Requests Raised\n(A+B+C)',
+                    'Request Cancelled / Out of Stock (A)',
+                    'Action pending / In Process At HO (B)',
+                    "Sent to HUB ('C)\n(D+E+F)",
+                    'Pending for Invoicing (D)',
+                    'Pending for Dispatch (E)',
+                    '# Requests Dispatched (F)\n(G+H+I)',
+                    'Delivered (G)',
+                    'Dispatched & In Transit (H)',
+                    'RTO (I)',
+                    'Incomplete Address',
+                    'Doctor Non Contactable',
+                    'Doctor Refused to Accept',
+                    'Hold Delivery'
+                ]
+                
+                for col in metric_cols:
+                    if col in detail_df.columns:
+                        agg_dict[col] = 'sum'
+                
+                # Perform grouping
+                try:
+                    zbm_grouped = detail_df.groupby(groupby_cols, dropna=False).agg(agg_dict).reset_index()
+                    print(f"   📍 Processing {len(zbm_grouped)} ZBM records")
+                    
+                    # Write each ZBM row
+                    for idx, row_data in zbm_grouped.iterrows():
+                        # Copy style from template data row
+                        copy_row_style(data_start_row, current_row)
                         
-                        try:
-                            cell = ws.cell(row=current_row, column=col_idx)
-                            cell.value = value
-                            
-                            if isinstance(value, (int, float)) and not pd.isna(value):
-                                cell.number_format = '0'
-                                cell.font = Font(name='Arial', size=10)
-                                cell.alignment = Alignment(horizontal='center', vertical='center')
-                            else:
-                                cell.font = Font(name='Arial', size=10)
-                                cell.alignment = Alignment(horizontal='left', vertical='center')
-                        except Exception as e:
-                            print(f"   Warning: Could not set value for column {col_name}: {e}")
-                
-                current_row += 1
-            
-            # Update total_row position if needed
-            if current_row > total_row:
-                total_row = current_row
+                        # Write data for each mapped column
+                        for col_name, col_idx in column_mapping.items():
+                            try:
+                                # Handle different possible column names
+                                value = None
+                                if col_name in row_data.index:
+                                    value = row_data[col_name]
+                                
+                                if value is not None and not pd.isna(value):
+                                    cell = ws.cell(row=current_row, column=col_idx)
+                                    cell.value = value
+                                    
+                                    # Format based on data type
+                                    if isinstance(value, (int, float)):
+                                        cell.number_format = '0'
+                                        cell.font = Font(name='Arial', size=10)
+                                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                                    else:
+                                        cell.font = Font(name='Arial', size=10)
+                                        if col_name in ['ZBM Terr Code', 'ZBM Name', 'Affiliate', 'Division', 'Division Name']:
+                                            cell.alignment = Alignment(horizontal='left', vertical='center')
+                                        else:
+                                            cell.alignment = Alignment(horizontal='center', vertical='center')
+                            except Exception as e:
+                                print(f"   ⚠️  Warning: Error writing column {col_name} for row {current_row}: {e}")
+                        
+                        current_row += 1
+                    
+                except Exception as e:
+                    print(f"   ❌ Error grouping ZBM data: {e}")
+                    import traceback
+                    traceback.print_exc()
+        else:
+            print(f"   ⚠️  Warning: No detail_df provided or empty, skipping ZBM rows")
 
-        # Write data to Total row with summary values
-        copy_row_style(total_row, total_row)
+        # Update total_row position if we added more rows than expected
+        if current_row >= total_row:
+            total_row = current_row
+            print(f"   📝 Adjusted Total row to: {total_row}")
+
+        # Write Total row with summary data
+        copy_row_style(data_start_row, total_row)
         
-        # Set "Total" text in first column
-        ws.cell(row=total_row, column=1, value="Total")
+        # Set "Total" text in first column with bold formatting
+        total_cell = ws.cell(row=total_row, column=1)
+        total_cell.value = "Total"
+        total_cell.font = Font(bold=True, name='Arial', size=10)
+        total_cell.alignment = Alignment(horizontal='left', vertical='center')
         
+        # Write summary values to Total row
         for col_name, col_idx in column_mapping.items():
+            # Skip ZBM-specific columns for Total row
+            if col_name in ['ZBM Terr Code', 'ZBM Name']:
+                continue
+                
             if col_name in summary_df.columns:
                 value = summary_df.iloc[0][col_name]
                 
                 try:
                     cell = ws.cell(row=total_row, column=col_idx)
-                    cell.value = value
                     
-                    if isinstance(value, (int, float)) and not pd.isna(value):
-                        cell.number_format = '0'
-                        cell.font = Font(bold=True, name='Arial', size=10)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    else:
-                        cell.font = Font(bold=True, name='Arial', size=10)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    if not pd.isna(value):
+                        cell.value = value
+                        
+                        if isinstance(value, (int, float)):
+                            cell.number_format = '0'
+                            cell.font = Font(bold=True, name='Arial', size=10)
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
+                        else:
+                            cell.font = Font(bold=True, name='Arial', size=10)
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
                 except Exception as e:
-                    print(f"   Warning: Could not set value for column {col_name}: {e}")
+                    print(f"   ⚠️  Warning: Could not set Total value for column {col_name}: {e}")
 
-        # Save file
-        safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
+        # Save file with proper naming
+        safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_').replace(':', '_')
         filename = f"Division_Summary_{div_code}_{safe_div_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         filepath = os.path.join(output_dir, filename)
         
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+        
         wb.save(filepath)
         print(f"   ✅ Created: {filename}")
+        print(f"   📂 Saved to: {filepath}")
         
     except Exception as e:
         print(f"   ❌ Error creating Excel report for Division {div_code}: {e}")
