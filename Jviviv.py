@@ -1,5 +1,4 @@
-# Clear existing data rows (between header and total)
-        for r in range(data_start_row, total_row):
+for r in range(data_start_row, total_row):
             for c in range(1, ws.max_column + 1):
                 try:
                     cell = ws.cell(row=r, column=c)
@@ -69,4 +68,4 @@
                         cell.font = Font(bold=True, name='Arial', size=10)
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                 except Exception as e:
-                    print(f"   Warning: Could not set value for column {col_name}: {e}")
+                    print(f"   Warning: Could
