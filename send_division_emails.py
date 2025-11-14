@@ -7,8 +7,14 @@ from openpyxl import load_workbook
 import glob
 
 # Load Jinja2 Template for email
-env = Environment(loader=FileSystemLoader('.'))
-template = env.get_template("email_template_Division.html")
+try:
+    env = Environment(loader=FileSystemLoader('.'))
+    template = env.get_template("email_template_Division.html")
+    print("✅ Email template loaded successfully")
+except Exception as e:
+    print(f"❌ Error loading email template: {e}")
+    print("Please ensure 'email_template_Division.html' exists in the current directory")
+    exit(1)
 
 # Get current date
 z = dt.today()
@@ -66,23 +72,48 @@ else:
 
 # Read Division Email Mapping file
 print("📖 Reading Division Email Mapping file...")
-try:
-    # Read the division email mapping file with updated column structure
-    division_emails_df = pd.read_excel('division_emails.xlsx')
-    print(f"✅ Successfully loaded division email mapping")
-    print(f"📋 Columns in file: {list(division_emails_df.columns)}")
-    
-    # Verify required columns exist
-    required_columns = ['Affiliate', 'Division Code', 'Division Name', 'Email id']
-    missing_columns = [col for col in required_columns if col not in division_emails_df.columns]
-    if missing_columns:
-        print(f"⚠️ Warning: Missing columns: {missing_columns}")
-        print("Please ensure your file has columns: 'Affiliate', 'Division Code', 'Division Name', 'Email id', 'Team'")
-        
-except Exception as e:
-    print(f"❌ Error reading division email mapping file: {e}")
-    print("Please ensure you have a file named 'division_emails.xlsx' with columns:")
-    print("'Affiliate', 'Division Code', 'Division Name', 'Email id', 'Team'")
+
+# Try multiple possible file names (prioritizes actual file over sample)
+# This ensures:
+# - If colleague has 'division_emails.xlsx', it will use that (preferred)
+# - If only 'division_emails_sample.xlsx' exists, it will use that as fallback
+possible_files = ['division_emails.xlsx', 'division_emails_sample.xlsx']
+division_emails_df = None
+file_used = None
+
+for filename in possible_files:
+    if os.path.exists(filename):
+        try:
+            division_emails_df = pd.read_excel(filename)
+            file_used = filename
+            if filename == 'division_emails_sample.xlsx':
+                print(f"✅ Successfully loaded division email mapping from: {filename} (sample file)")
+                print(f"   ℹ️  Note: Using sample file. If you have 'division_emails.xlsx', it will be used instead.")
+            else:
+                print(f"✅ Successfully loaded division email mapping from: {filename}")
+            print(f"📋 Columns in file: {list(division_emails_df.columns)}")
+            break
+        except Exception as e:
+            print(f"⚠️ Warning: Could not read {filename}: {e}")
+            continue
+
+if division_emails_df is None:
+    print(f"❌ Error: Could not find division email mapping file!")
+    print(f"   Tried looking for: {', '.join(possible_files)}")
+    print(f"   Please ensure one of these files exists with columns:")
+    print(f"   'Affiliate', 'Division Code', 'Division Name', 'Email id'")
+    print(f"\n   💡 Tip: The code will automatically use 'division_emails.xlsx' if available,")
+    print(f"      otherwise it will fall back to 'division_emails_sample.xlsx'")
+    exit(1)
+
+# Verify required columns exist
+required_columns = ['Affiliate', 'Division Code', 'Division Name', 'Email id']
+missing_columns = [col for col in required_columns if col not in division_emails_df.columns]
+if missing_columns:
+    print(f"❌ Error: Missing required columns: {missing_columns}")
+    print(f"   File used: {file_used}")
+    print(f"   Available columns: {list(division_emails_df.columns)}")
+    print(f"   Please ensure your file has columns: {required_columns}")
     exit(1)
 
 # Read ZBM Automation Email file to get division details
@@ -97,8 +128,43 @@ divisions = df.groupby('TBM Division').agg({
 
 print(f"📋 Found {len(divisions)} unique Divisions to process")
 
+# Convert Division Code to string for matching (handle both string and numeric codes)
+# Do this once before the loop
+try:
+    division_emails_df['Division Code'] = division_emails_df['Division Code'].astype(str).str.strip()
+    print("✅ Division Code column converted to string for matching")
+except Exception as e:
+    print(f"⚠️ Warning: Could not convert Division Code column: {e}")
+
 # Initialize Outlook
-outlook = win32.Dispatch("Outlook.Application")
+try:
+    outlook = win32.Dispatch("Outlook.Application")
+    print("✅ Outlook initialized successfully")
+except Exception as e:
+    print(f"❌ Error initializing Outlook: {e}")
+    print("Please ensure Outlook is installed and configured")
+    exit(1)
+
+# Get the sender account (EPD_SFA@abbott.com)
+sender_account = None
+try:
+    namespace = outlook.GetNamespace("MAPI")
+    accounts = namespace.Accounts
+    for account in accounts:
+        if 'EPD_SFA@abbott.com' in str(account) or 'epd_sfa' in str(account).lower():
+            sender_account = account
+            print(f"✅ Found sender account: {account}")
+            break
+    
+    if sender_account is None:
+        print("⚠️ Warning: Could not find EPD_SFA@abbott.com account")
+        print("   Available accounts:")
+        for account in accounts:
+            print(f"      - {account}")
+        print("   Will attempt to use default account or SentOnBehalfOfName")
+except Exception as e:
+    print(f"⚠️ Warning: Could not access Outlook accounts: {e}")
+    print("   Will attempt to use SentOnBehalfOfName instead")
 
 # Create output directory for sent email logs
 output_dir = os.path.dirname(os.path.abspath(__file__))
@@ -297,7 +363,9 @@ for _, div_row in divisions.iterrows():
     print(f"\n🔄 Processing Division: {div_code} - {affiliate} - {div_name}")
     
     # Find ALL email addresses for this division code
-    div_email_rows = division_emails_df[division_emails_df['Division Code'] == div_code]
+    # Convert div_code to string for matching
+    div_code_str = str(div_code).strip()
+    div_email_rows = division_emails_df[division_emails_df['Division Code'] == div_code_str]
     
     if div_email_rows.empty:
         print(f"   ⚠️ No emails found for Division Code {div_code}")
@@ -368,6 +436,35 @@ for _, div_row in divisions.iterrows():
     try:
         mail = outlook.CreateItem(0)
         
+        # Set sender account BEFORE setting other properties
+        # Method 1: Try SendUsingAccount (most reliable if account is configured in Outlook)
+        sender_set = False
+        if sender_account:
+            try:
+                mail.SendUsingAccount = sender_account
+                print(f"   ✅ Using sender account: {sender_account}")
+                sender_set = True
+            except Exception as account_error:
+                print(f"   ⚠️ Warning: Could not set SendUsingAccount: {account_error}")
+                print(f"      Error details: {str(account_error)}")
+        
+        # Method 2: Fallback to SentOnBehalfOfName (requires 'Send As' permissions)
+        if not sender_set:
+            try:
+                mail.SentOnBehalfOfName = 'EPD_SFA@abbott.com'
+                print(f"   ✅ Using SentOnBehalfOfName: EPD_SFA@abbott.com")
+                sender_set = True
+            except Exception as behalf_error:
+                print(f"   ⚠️ Warning: Could not set SentOnBehalfOfName: {behalf_error}")
+                print(f"      Error details: {str(behalf_error)}")
+        
+        if not sender_set:
+            print(f"   ⚠️ WARNING: Could not set sender account. Email will use default Outlook account.")
+            print(f"   ⚠️ To fix this:")
+            print(f"      1. Ensure EPD_SFA@abbott.com is added as an account in Outlook")
+            print(f"      2. OR ensure you have 'Send As' permissions for EPD_SFA@abbott.com")
+            print(f"      3. Check Outlook account settings and permissions")
+        
         # Add ALL email addresses to TO field (semicolon-separated)
         mail.To = '; '.join(all_emails)
         
@@ -383,16 +480,17 @@ for _, div_row in divisions.iterrows():
         mail.Subject = f"{div_name}: Sample Direct Dispatch to Doctors - Request Status as of {current_date}"
         
         # Render email body with summary table
-        mail.HTMLBody = template.render(
-            division_name=div_name,
-            division_code=div_code,
-            affiliate=affiliate,
-            current_date=current_date,
-            summary_table=summary_html
-        )
-        
-        # Set sender
-        mail.SentOnBehalfOfName = 'EPD_SFA@abbott.com'
+        try:
+            mail.HTMLBody = template.render(
+                division_name=div_name,
+                division_code=div_code,
+                affiliate=affiliate,
+                current_date=current_date,
+                summary_table=summary_html
+            )
+        except Exception as template_error:
+            print(f"   ❌ Error rendering email template: {template_error}")
+            continue
         
         # Attach consolidated file - AFTER setting body
         try:
