@@ -408,55 +408,110 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         
         if total_row is None:
             total_row = header_row + 1  # Default position
+            print(f"   ⚠️  'Total' row not found, using default row {total_row}")
+        else:
+            print(f"   ✅ Found 'Total' row at row {total_row}")
         
         data_start_row = header_row + 1
         
         # Read actual column positions from template header row
         column_mapping = {}
+        template_headers = []  # For debugging
+        
+        # Define mapping rules: (summary_df_column_name, [list of possible header substrings to match])
+        # Order matters: more specific matches should come first
+        mapping_rules = [
+            ('Affiliate', ['Affiliate']),
+            ('Division Name', ['Division Name']),  # Check before 'Division' to avoid conflicts
+            ('Division', ['Division']),
+            ('# Unique TBMs', ['TBMs', '# Unique TBMs', 'Unique TBMs', '# TBMs']),
+            ('# Unique HCPs', ['HCPs', '# Unique HCPs', 'Unique HCPs', '# HCPs']),
+            ('# Requests Raised\n(A+B+C)', ['Requests Raised', 'Requests raised', '(A+B+C)']),
+            ('Request Cancelled / Out of Stock (A)', ['Out of Stock', 'Out of stock', 'Cancelled', '(A)']),
+            ('Action pending / In Process At HO (B)', ['Action pending', 'In Process At HO', '(B)']),
+            ("Sent to HUB ('C)\n(D+E+F)", ['Sent to HUB', 'Sent to Hub', '(C)', '(D+E+F)']),
+            ('Pending for Invoicing (D)', ['Pending for Invoicing', 'Invoicing', '(D)']),
+            ('Pending for Dispatch (E)', ['Pending for Dispatch', 'Dispatch', '(E)']),
+            ('# Requests Dispatched (F)\n(G+H+I)', ['Requests Dispatched', '(F)', '(G+H+I)']),
+            ('Delivered (G)', ['Delivered', '(G)']),
+            ('Dispatched & In Transit (H)', ['Dispatched & In Transit', 'Dispatched &amp; In Transit', 'In Transit', '(H)']),
+            ('RTO (I)', ['RTO', '(I)']),
+            ('Incomplete Address', ['Incomplete Address', 'Incomplete']),
+            ('Doctor Non Contactable', ['Doctor Non Contactable', 'Non Contactable', 'Non-contactable']),
+            ('Doctor Refused to Accept', ['Refused to Accept', 'refused to accept', 'Refused']),
+            ('Hold Delivery', ['Hold Delivery', 'Hold delivery']),
+        ]
+        
+        # First, collect all template headers
         for col_idx in range(1, min(30, ws.max_column + 1)):
             header_val = get_cell_value_handling_merged(header_row, col_idx)
             if header_val:
                 header_str = str(header_val).strip()
+                template_headers.append((col_idx, header_str))
+        
+        # Now match each rule to the best column
+        for summary_col, search_terms in mapping_rules:
+            # Skip if already mapped
+            if summary_col in column_mapping:
+                continue
+            
+            # Try to find the best matching column for this rule
+            best_match = None
+            best_match_score = 0
+            
+            for col_idx, header_str in template_headers:
+                # Skip if this column is already mapped to something else
+                if col_idx in column_mapping.values():
+                    continue
                 
-                # Map columns based on template
-                if 'Affiliate' in header_str:
-                    column_mapping['Affiliate'] = col_idx
-                elif 'Division' in header_str and 'Name' not in header_str:
-                    column_mapping['Division'] = col_idx
-                elif 'Division Name' in header_str:
-                    column_mapping['Division Name'] = col_idx
-                elif 'TBMs' in header_str or '# Unique TBMs' in header_str:
-                    column_mapping['# Unique TBMs'] = col_idx
-                elif 'HCPs' in header_str or '# Unique HCPs' in header_str:
-                    column_mapping['# Unique HCPs'] = col_idx
-                elif 'Requests Raised' in header_str or 'Requests raised' in header_str:
-                    column_mapping['# Requests Raised\n(A+B+C)'] = col_idx
-                elif 'Out of Stock' in header_str or 'Out of stock' in header_str:
-                    column_mapping['Request Cancelled / Out of Stock (A)'] = col_idx
-                elif 'Action pending' in header_str and 'HO' in header_str:
-                    column_mapping['Action pending / In Process At HO (B)'] = col_idx
-                elif 'Sent to HUB' in header_str:
-                    column_mapping["Sent to HUB ('C)\n(D+E+F)"] = col_idx
-                elif 'Pending for Invoicing' in header_str:
-                    column_mapping['Pending for Invoicing (D)'] = col_idx
-                elif 'Pending for Dispatch' in header_str:
-                    column_mapping['Pending for Dispatch (E)'] = col_idx
-                elif 'Requests Dispatched' in header_str and 'In Transit' not in header_str:
-                    column_mapping['# Requests Dispatched (F)\n(G+H+I)'] = col_idx
-                elif 'Delivered' in header_str and '(' in header_str:
-                    column_mapping['Delivered (G)'] = col_idx
-                elif 'Dispatched & In Transit' in header_str or 'Dispatched &amp; In Transit' in header_str:
-                    column_mapping['Dispatched & In Transit (H)'] = col_idx
-                elif 'RTO' in header_str and '(' in header_str and 'Hold' not in header_str:
-                    column_mapping['RTO (I)'] = col_idx
-                elif 'Incomplete Address' in header_str:
-                    column_mapping['Incomplete Address'] = col_idx
-                elif 'Doctor Non Contactable' in header_str or 'Non Contactable' in header_str:
-                    column_mapping['Doctor Non Contactable'] = col_idx
-                elif 'Refused to Accept' in header_str or 'refused to accept' in header_str:
-                    column_mapping['Doctor Refused to Accept'] = col_idx
-                elif 'Hold Delivery' in header_str:
-                    column_mapping['Hold Delivery'] = col_idx
+                # Normalize header for matching (remove newlines, extra spaces, case insensitive)
+                header_normalized = ' '.join(header_str.replace('\n', ' ').replace('\r', ' ').split()).lower()
+                
+                # Check if any search term matches
+                match_score = 0
+                for term in search_terms:
+                    term_lower = term.lower()
+                    # Exact match gets higher score
+                    if term_lower == header_normalized:
+                        match_score = 100
+                        break
+                    elif term_lower in header_normalized:
+                        match_score = max(match_score, len(term))
+                    elif term_lower in header_str.lower():
+                        match_score = max(match_score, len(term) // 2)
+                
+                # Special handling for Division vs Division Name
+                if summary_col == 'Division' and 'name' in header_normalized:
+                    match_score = 0  # Don't match "Division Name" to "Division"
+                
+                if match_score > best_match_score:
+                    best_match_score = match_score
+                    best_match = col_idx
+            
+            if best_match and best_match_score > 0:
+                column_mapping[summary_col] = best_match
+        
+        # Debug: Print template headers and mappings
+        print(f"   🔍 Template headers found (row {header_row}):")
+        for col_idx, header in template_headers[:15]:  # Print first 15
+            mapped_to = [k for k, v in column_mapping.items() if v == col_idx]
+            mapped_str = f" -> {mapped_to[0]}" if mapped_to else ""
+            print(f"      Col {col_idx}: '{header}'{mapped_str}")
+        
+        print(f"   🔍 Column mappings created: {len(column_mapping)} mappings")
+        
+        # Check which columns from summary_df have mappings
+        missing_mappings = [col for col in summary_df.columns if col not in column_mapping]
+        if missing_mappings:
+            print(f"   ⚠️  WARNING: {len(missing_mappings)} columns in summary_df have no mapping:")
+            for col in missing_mappings:
+                print(f"      - '{col}'")
+                # Try to find similar headers
+                for col_idx, header in template_headers:
+                    if any(word.lower() in str(header).lower() for word in col.split() if len(word) > 3):
+                        print(f"        (Possible match: Col {col_idx} = '{header}')")
+        else:
+            print(f"   ✅ All {len(summary_df.columns)} columns have mappings!")
 
         # Clear existing data rows (between header and total)
         for r in range(data_start_row, total_row):
@@ -492,6 +547,8 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         # Set "Total" text in first column
         ws.cell(row=total_row, column=1, value="Total")
         
+        # Write data to cells
+        values_written = 0
         for col_name, col_idx in column_mapping.items():
             if col_name in summary_df.columns:
                 value = summary_df.iloc[0][col_name]
@@ -499,6 +556,7 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 try:
                     cell = ws.cell(row=total_row, column=col_idx)
                     cell.value = value
+                    values_written += 1
                     
                     if isinstance(value, (int, float)) and not pd.isna(value):
                         cell.number_format = '0'
@@ -508,7 +566,11 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                         cell.font = Font(bold=True, name='Arial', size=10)
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                 except Exception as e:
-                    print(f"   Warning: Could not set value for column {col_name}: {e}")
+                    print(f"   ⚠️  Warning: Could not set value for column '{col_name}' (col {col_idx}): {e}")
+            else:
+                print(f"   ⚠️  Warning: Column '{col_name}' found in mapping but not in summary_df")
+        
+        print(f"   ✅ Wrote {values_written} values to row {total_row}")
 
         # Save file
         safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
