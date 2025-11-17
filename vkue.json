@@ -1,0 +1,13 @@
+{
+    "foreachItems": [
+        {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "id": "AAMkAGIxZTljMTU4LTBmNmEtNDg4MS1hZGY4LTZkNjA2ZWNiM2VlMgBGAAAAAABitYFxzELwRJK3J8MFX8VSBwATzLN8tDWpRZnsS33SqV4hAAAAAAEMAAATzLN8tDWpRZnsS33SqV4hAAA3IqQgAAABEgAQAM4z4AAti09LgkLMwLopVOU=",
+            "lastModifiedDateTime": "2025-11-17T20:42:10+00:00",
+            "name": "Aryan Sanjeev_Resume.pdf",
+            "contentType": "application/pdf",
+            "size": 392765,
+            "isInline": false
+        }
+    ]
+}
