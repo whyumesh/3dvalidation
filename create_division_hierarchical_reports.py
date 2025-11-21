@@ -173,6 +173,12 @@ def create_division_hierarchical_reports():
     file_count = 0
     total_validation_errors = 0
     
+    if len(divisions) == 0:
+        print("❌ No Divisions found in data!")
+        return
+    
+    print(f"📋 Processing {len(divisions)} Divisions...")
+    
     for _, div_row in divisions.iterrows():
         div_code = div_row['TBM Division']
         affiliate = div_row['AFFILIATE']
@@ -184,7 +190,7 @@ def create_division_hierarchical_reports():
         div_data = df_dedup[df_dedup['TBM Division'] == div_code].copy()
         
         if len(div_data) == 0:
-            print(f"No data found for Division: {div_code}")
+            print(f"   ⚠️  No data found for Division: {div_code}, skipping...")
             continue
         
         # Build hierarchical structure: Division -> ZBM -> ABM -> TBM
@@ -267,6 +273,8 @@ def create_division_hierarchical_reports():
             requests_raised = unique_requests
             
             return {
+                'ZBM Code': None,  # Will be filled in for ZBM/ABM/TBM rows
+                'ZBM Name': None,  # Will be filled in for ZBM/ABM/TBM rows
                 'Affiliate': affiliate,
                 'Division': div_code,
                 'Division Name': div_name,
@@ -287,15 +295,13 @@ def create_division_hierarchical_reports():
                 'Doctor Refused to Accept': doctor_refused_to_accept,
                 'Hold Delivery': rto_due_to_hold_delivery,
                 'Level': level_name,  # For identifying hierarchy level
-                'ZBM Code': None,
-                'ZBM Name': None,
                 'ABM Code': None,
                 'ABM Name': None,
                 'TBM Code': None,
                 'TBM Name': None,
             }
         
-        # Process each ZBM
+        # Process each ZBM (similar to how ZBM reports process ABMs)
         for _, zbm_row in zbms.iterrows():
             zbm_code = zbm_row['ZBM Terr Code']
             zbm_name = zbm_row['ZBM Name']
@@ -303,92 +309,124 @@ def create_division_hierarchical_reports():
             # Filter data for this ZBM
             zbm_data = div_data[div_data['ZBM Terr Code'] == zbm_code].copy()
             
-            # Calculate ZBM-level metrics
-            zbm_metrics = calculate_metrics(zbm_data, 'ZBM')
-            zbm_metrics['ZBM Code'] = zbm_code
-            zbm_metrics['ZBM Name'] = zbm_name
-            summary_data.append(zbm_metrics)
+            # Calculate ZBM-level metrics (using nunique for accurate counts)
+            unique_tbms = zbm_data[tbm_created_by_col].nunique()
+            unique_hcps = zbm_data['Doctor: Customer Code'].nunique()
+            unique_requests = zbm_data['Assigned Request Ids'].nunique()
             
-            # Get unique ABMs under this ZBM
-            abms = zbm_data.groupby(['ABM Terr Code', 'ABM Name']).agg({
-                'ABM EMAIL_ID': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0],
-                'TBM HQ': 'first',
-                'ABM HQ': 'first' if 'ABM HQ' in zbm_data.columns else lambda x: None
-            }).reset_index().sort_values('ABM Terr Code')
+            # === SECTION A: Request Cancelled Out of Stock ===
+            ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
+            request_cancelled_out_of_stock = zbm_data[zbm_data['Final Answer'].isin(ho_statuses)]['Assigned Request Ids'].nunique()
             
-            # Process each ABM under this ZBM
-            for _, abm_row in abms.iterrows():
-                abm_code = abm_row['ABM Terr Code']
-                abm_name = abm_row['ABM Name']
+            # === SECTION B: Action Pending at HO ===
+            pending_statuses = ['Request Raised', 'Action pending / In Process At HO']
+            action_pending_at_ho = zbm_data[zbm_data['Final Answer'].isin(pending_statuses)]['Assigned Request Ids'].nunique()
+            
+            # === SECTION D: Pending for Invoicing ===
+            hub_pending_statuses = ['Action pending / In Process At Hub']
+            pending_for_invoicing = zbm_data[zbm_data['Final Answer'].isin(hub_pending_statuses)]['Assigned Request Ids'].nunique()
+            
+            # === SECTION E: Pending for Dispatch ===
+            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending']
+            pending_for_dispatch = zbm_data[zbm_data['Final Answer'].isin(dispatch_pending_statuses)]['Assigned Request Ids'].nunique()
+            
+            # === SECTION G: Delivered ===
+            delivered_statuses = ['Delivered']
+            delivered = zbm_data[zbm_data['Final Answer'].isin(delivered_statuses)]['Assigned Request Ids'].nunique()
+            
+            # === SECTION H: Dispatched & In Transit ===
+            transit_statuses = ['Dispatched & In Transit']
+            dispatched_in_transit = zbm_data[zbm_data['Final Answer'].isin(transit_statuses)]['Assigned Request Ids'].nunique()
+            
+            # === SECTION I: RTO (Return to Origin) ===
+            rto_total = zbm_data[zbm_data['Final Answer'] == 'Return']['Assigned Request Ids'].nunique()
+            
+            # RTO Reasons
+            unique_request_ids = zbm_data[zbm_data['Final Answer'] == 'Return']['Assigned Request Ids'].unique()
+            
+            incomplete_address = 0
+            doctor_refused_to_accept = 0
+            doctor_non_contactable = 0
+            rto_due_to_hold_delivery = 0
+            
+            for req_id in unique_request_ids:
+                req_rows = zbm_data[zbm_data['Assigned Request Ids'] == req_id]
+                rto_col = req_rows['Rto Reason'].astype(str).str.strip().str.lower()
                 
-                # Filter data for this ABM
-                abm_data = zbm_data[(zbm_data['ABM Terr Code'] == abm_code) & 
-                                   (zbm_data['ABM Name'] == abm_name)].copy()
+                has_incomplete = rto_col.str.contains('incomplete address', na=False, regex=False).any()
+                has_refused = rto_col.str.contains('refused to accept', na=False, regex=False).any()
+                has_non_contactable = rto_col.str.contains('non contactable', na=False, regex=False).any()
+                has_rto_hold_delivery = rto_col.str.contains('hold delivery', na=False, regex=False).any()
                 
-                # Calculate ABM-level metrics
-                abm_metrics = calculate_metrics(abm_data, 'ABM')
-                abm_metrics['ZBM Code'] = zbm_code
-                abm_metrics['ZBM Name'] = zbm_name
-                abm_metrics['ABM Code'] = abm_code
-                abm_metrics['ABM Name'] = abm_name
-                summary_data.append(abm_metrics)
-                
-                # Get unique TBMs under this ABM
-                tbms = abm_data.groupby([tbm_created_by_col]).agg({
-                    'TBM EMAIL_ID': lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[0] if 'TBM EMAIL_ID' in abm_data.columns else None,
-                    'TBM HQ': 'first' if 'TBM HQ' in abm_data.columns else lambda x: None
-                }).reset_index()
-                tbms = tbms.rename(columns={tbm_created_by_col: 'TBM_Identifier'})
-                
-                # Process each TBM under this ABM
-                for _, tbm_row in tbms.iterrows():
-                    tbm_identifier = tbm_row['TBM_Identifier']
-                    
-                    # Filter data for this TBM
-                    tbm_data = abm_data[abm_data[tbm_created_by_col] == tbm_identifier].copy()
-                    
-                    # Calculate TBM-level metrics
-                    tbm_metrics = calculate_metrics(tbm_data, 'TBM')
-                    tbm_metrics['ZBM Code'] = zbm_code
-                    tbm_metrics['ZBM Name'] = zbm_name
-                    tbm_metrics['ABM Code'] = abm_code
-                    tbm_metrics['ABM Name'] = abm_name
-                    tbm_metrics['TBM Code'] = tbm_identifier
-                    tbm_metrics['TBM Name'] = tbm_identifier  # Use identifier as name if no separate name column
-                    summary_data.append(tbm_metrics)
+                if has_incomplete:
+                    incomplete_address += 1
+                elif has_refused:
+                    doctor_refused_to_accept += 1
+                elif has_non_contactable:
+                    doctor_non_contactable += 1
+                elif has_rto_hold_delivery:
+                    rto_due_to_hold_delivery += 1
+            
+            # === CALCULATED FIELDS ===
+            requests_dispatched = delivered + dispatched_in_transit + rto_total
+            sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
+            requests_raised = unique_requests
+            
+            # Count unique ZBMs in this division (for this ZBM row, it's 1, but we'll show total unique ZBMs in division)
+            unique_zbms_in_division = len(zbms)
+            
+            summary_data.append({
+                'ZBM Code': zbm_code,
+                'ZBM Name': zbm_name,
+                '# Unique ZBMs': unique_zbms_in_division,  # Show unique ZBM count
+                'Affiliate': affiliate,
+                'Division': div_code,
+                'Division Name': div_name,
+                '# Unique TBMs': unique_tbms,
+                '# Unique HCPs': unique_hcps,
+                '# Requests Raised\n(A+B+C)': requests_raised,
+                'Request Cancelled / Out of Stock (A)': request_cancelled_out_of_stock,
+                'Action pending / In Process At HO (B)': action_pending_at_ho,
+                "Sent to HUB ('C)\n(D+E+F)": sent_to_hub,
+                'Pending for Invoicing (D)': pending_for_invoicing,
+                'Pending for Dispatch (E)': pending_for_dispatch,
+                '# Requests Dispatched (F)\n(G+H+I)': requests_dispatched,
+                'Delivered (G)': delivered,
+                'Dispatched & In Transit (H)': dispatched_in_transit,
+                'RTO (I)': rto_total,
+                'Incomplete Address': incomplete_address,
+                'Doctor Non Contactable': doctor_non_contactable,
+                'Doctor Refused to Accept': doctor_refused_to_accept,
+                'Hold Delivery': rto_due_to_hold_delivery,
+                'Level': 'ZBM',
+            })
         
-        # Calculate Division-level totals (for validation and total row)
-        div_metrics = calculate_metrics(div_data, 'Total')
-        div_metrics['Level'] = 'Total'
+        # Create DataFrame for this Division (only ZBM rows, like ZBM reports show only ABM rows)
+        if len(summary_data) == 0:
+            print(f"   ⚠️  No ZBM data found for Division {div_code}, skipping...")
+            continue
+            
+        div_summary_df = pd.DataFrame(summary_data)
         
         # Validate Division total
         div_total_requests = div_data['Assigned Request Ids'].nunique()
-        if div_total_requests != div_metrics['# Requests Raised\n(A+B+C)']:
-            print(f"      WARNING: Division {div_code} total mismatch!")
-            print(f"      Actual unique requests: {div_total_requests}")
-            print(f"      Calculated total: {div_metrics['# Requests Raised\n(A+B+C)']}")
+        zbm_sum = div_summary_df['# Requests Raised\n(A+B+C)'].sum()
         
-        # Add total row
-        summary_data.append(div_metrics)
+        print(f"   ✅ Unique ZBMs: {len(zbms)}, Total requests: {zbm_sum}")
         
-        # Create DataFrame for this Division
-        div_summary_df = pd.DataFrame(summary_data)
-        
-        # Validate totals match
-        zbm_sum = div_summary_df[div_summary_df['Level'] == 'ZBM']['# Requests Raised\n(A+B+C)'].sum()
-        abm_sum = div_summary_df[div_summary_df['Level'] == 'ABM']['# Requests Raised\n(A+B+C)'].sum()
-        tbm_sum = div_summary_df[div_summary_df['Level'] == 'TBM']['# Requests Raised\n(A+B+C)'].sum()
-        total_sum = div_summary_df[div_summary_df['Level'] == 'Total']['# Requests Raised\n(A+B+C)'].iloc[0]
-        
-        print(f"   ✅ ZBM sum: {zbm_sum}, ABM sum: {abm_sum}, TBM sum: {tbm_sum}, Total: {total_sum}")
-        
-        if abs(zbm_sum - total_sum) > 0:
-            print(f"      ⚠️  ZBM sum doesn't match total (diff: {abs(zbm_sum - total_sum)})")
+        if abs(zbm_sum - div_total_requests) > 0:
+            print(f"      ⚠️  ZBM sum doesn't match division total (diff: {abs(div_total_requests - zbm_sum)})")
             total_validation_errors += 1
         
         # Create Excel file for this Division
-        create_division_excel_report(div_code, affiliate, div_name, div_summary_df, output_dir)
-        file_count += 1
+        try:
+            create_division_excel_report(div_code, affiliate, div_name, div_summary_df, output_dir)
+            file_count += 1
+        except Exception as e:
+            print(f"   ❌ Failed to create Excel report for Division {div_code}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
     
     print(f"\n🎉 Successfully created {file_count} Division reports in directory: {output_dir}")
     print(f"📊 Total Divisions processed: {file_count}")
@@ -406,6 +444,7 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         
         if not os.path.exists(template_file):
             print(f"   ❌ Template file not found: {template_file}")
+            print(f"   Current working directory: {os.getcwd()}")
             return
         
         # Load the Excel template to preserve formatting
@@ -425,21 +464,66 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             
             return cell.value
         
-        # Search for header row containing "Affiliate"
+        # Search for header row - try multiple strategies
         header_row = None
+        
+        # Strategy 1: Look for "ZBM Code" (first column)
         for row_idx in range(1, 15):
-            for col_idx in range(1, min(30, ws.max_column + 1)):
+            for col_idx in range(1, min(5, ws.max_column + 1)):  # Check first few columns
                 cell_value = get_cell_value_handling_merged(row_idx, col_idx)
-                if cell_value and 'Affiliate' in str(cell_value):
+                if cell_value and 'ZBM Code' in str(cell_value):
                     header_row = row_idx
+                    print(f"   ✅ Found header row at {row_idx} (by ZBM Code)")
                     break
             if header_row:
                 break
         
+        # Strategy 2: Look for "ZBM Name"
         if header_row is None:
-            header_row = 3  # Default based on CSV template structure (row 3)
+            for row_idx in range(1, 15):
+                for col_idx in range(1, min(10, ws.max_column + 1)):
+                    cell_value = get_cell_value_handling_merged(row_idx, col_idx)
+                    if cell_value and 'ZBM Name' in str(cell_value):
+                        header_row = row_idx
+                        print(f"   ✅ Found header row at {row_idx} (by ZBM Name)")
+                        break
+                if header_row:
+                    break
         
-        # Find "Total" row
+        # Strategy 3: Look for "Affiliate"
+        if header_row is None:
+            for row_idx in range(1, 15):
+                for col_idx in range(1, min(30, ws.max_column + 1)):
+                    cell_value = get_cell_value_handling_merged(row_idx, col_idx)
+                    if cell_value and 'Affiliate' in str(cell_value):
+                        header_row = row_idx
+                        print(f"   ✅ Found header row at {row_idx} (by Affiliate)")
+                        break
+                if header_row:
+                    break
+        
+        # Strategy 4: Look for any common header keywords
+        if header_row is None:
+            keywords = ['Division', 'Requests Raised', 'Unique TBMs', 'Unique HCPs']
+            for row_idx in range(1, 15):
+                for col_idx in range(1, min(30, ws.max_column + 1)):
+                    cell_value = get_cell_value_handling_merged(row_idx, col_idx)
+                    if cell_value:
+                        cell_str = str(cell_value)
+                        if any(keyword in cell_str for keyword in keywords):
+                            header_row = row_idx
+                            print(f"   ✅ Found header row at {row_idx} (by keywords)")
+                            break
+                if header_row:
+                    break
+        
+        if header_row is None:
+            header_row = 3  # Default fallback
+            print(f"   ⚠️  Could not find header row, using default row {header_row}")
+        else:
+            print(f"   ✅ Using header row: {header_row}")
+        
+        # Find "Total" row (optional - we'll create our own total row)
         total_row = None
         for row_idx in range(header_row + 1, min(header_row + 20, ws.max_row + 1)):
             cell_value = get_cell_value_handling_merged(row_idx, 1)
@@ -447,13 +531,13 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 total_row = row_idx
                 break
         
+        data_start_row = header_row + 1
+        
+        # If no total row found, we'll add one after the data
         if total_row is None:
-            total_row = header_row + 1  # Default position
-            print(f"   ⚠️  'Total' row not found, using default row {total_row}")
+            print(f"   ℹ️  'Total' row not found in template, will add after data rows")
         else:
             print(f"   ✅ Found 'Total' row at row {total_row}")
-        
-        data_start_row = header_row + 1
         
         # Read actual column positions from template header row
         column_mapping = {}
@@ -462,22 +546,25 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         # Define mapping rules: (summary_df_column_name, [list of possible header substrings to match])
         # Order matters: more specific matches should come first
         mapping_rules = [
+            ('ZBM Code', ['ZBM Code', 'Zone Code', 'ZBM Terr Code']),  # Added 'Zone Code' to match template
+            ('ZBM Name', ['ZBM Name']),
+            ('# Unique ZBMs', ['Unique ZBMs', '# Unique ZBMs', 'Unique ZBM', '# ZBMs']),
             ('Affiliate', ['Affiliate']),
             ('Division Name', ['Division Name']),  # Check before 'Division' to avoid conflicts
             ('Division', ['Division']),
-            ('# Unique TBMs', ['TBMs', '# Unique TBMs', 'Unique TBMs', '# TBMs']),
-            ('# Unique HCPs', ['HCPs', '# Unique HCPs', 'Unique HCPs', '# HCPs']),
-            ('# Requests Raised\n(A+B+C)', ['Requests Raised', 'Requests raised', '(A+B+C)']),
-            ('Request Cancelled / Out of Stock (A)', ['Out of Stock', 'Out of stock', 'Cancelled', '(A)']),
-            ('Action pending / In Process At HO (B)', ['Action pending', 'In Process At HO', '(B)']),
+            ('# Unique TBMs', ['TBMs', '# Unique TBMs', 'Unique TBMs', '# TBMs', '# TBMs']),
+            ('# Unique HCPs', ['HCPs', '# Unique HCPs', 'Unique HCPs', '# HCPs', 'Unique HCPs Participating']),
+            ('# Requests Raised\n(A+B+C)', ['Requests Raised', 'Requests raised', '# Requests raised', '(A+B+C)']),
+            ('Request Cancelled / Out of Stock (A)', ['Out of Stock', 'Out of stock', '# Out of stock', 'Cancelled', '(A)']),
+            ('Action pending / In Process At HO (B)', ['Action pending', 'In Process At HO', '# Action pending / In Process', '(B)']),
             ("Sent to HUB ('C)\n(D+E+F)", ['Sent to HUB', 'Sent to Hub', '(C)', '(D+E+F)']),
             ('Pending for Invoicing (D)', ['Pending for Invoicing', 'Invoicing', '(D)']),
-            ('Pending for Dispatch (E)', ['Pending for Dispatch', 'Dispatch', '(E)']),
-            ('# Requests Dispatched (F)\n(G+H+I)', ['Requests Dispatched', '(F)', '(G+H+I)']),
-            ('Delivered (G)', ['Delivered', '(G)']),
-            ('Dispatched & In Transit (H)', ['Dispatched & In Transit', 'Dispatched &amp; In Transit', 'In Transit', '(H)']),
-            ('RTO (I)', ['RTO', '(I)']),
-            ('Incomplete Address', ['Incomplete Address', 'Incomplete']),
+            ('Pending for Dispatch (E)', ['Pending for Dispatch', 'Dispatch', '# Requests dispatched', '(E)']),
+            ('# Requests Dispatched (F)\n(G+H+I)', ['Requests Dispatched', '# Requests Dispatched', '(F)', '(G+H+I)']),
+            ('Delivered (G)', ['Delivered', '# Delivered', '(G)']),
+            ('Dispatched & In Transit (H)', ['Dispatched & In Transit', 'Dispatched &amp; In Transit', '# Dispatched & In Transit', 'In Transit', '(H)']),
+            ('RTO (I)', ['RTO', '#RTO', '(I)']),
+            ('Incomplete Address', ['Incomplete Address', '- Incomplete Address', 'Incomplete']),
             ('Doctor Non Contactable', ['Doctor Non Contactable', 'Non Contactable', 'Non-contactable']),
             ('Doctor Refused to Accept', ['Refused to Accept', 'refused to accept', 'Refused']),
             ('Hold Delivery', ['Hold Delivery', 'Hold delivery']),
@@ -553,39 +640,46 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                         print(f"        (Possible match: Col {col_idx} = '{header}')")
         else:
             print(f"   ✅ All {len(summary_df.columns)} columns have mappings!")
+        
+        # Critical check: Must have ZBM Code and ZBM Name columns mapped
+        if 'ZBM Code' not in column_mapping:
+            print(f"   ⚠️  WARNING: ZBM Code column not found in template!")
+            print(f"   Available template headers: {[h[1] for h in template_headers[:10]]}")
+            # Try to find Zone Code as fallback
+            for col_idx, header_str in template_headers:
+                if 'Zone Code' in str(header_str) or 'zone code' in str(header_str).lower():
+                    column_mapping['ZBM Code'] = col_idx
+                    print(f"   ✅ Mapped 'Zone Code' (col {col_idx}) to 'ZBM Code'")
+                    break
+            if 'ZBM Code' not in column_mapping:
+                print(f"   ❌ CRITICAL ERROR: Could not find ZBM Code or Zone Code column!")
+                return
+        
+        if 'ZBM Name' not in column_mapping:
+            print(f"   ❌ CRITICAL ERROR: ZBM Name column not found in template!")
+            print(f"   Available template headers: {[h[1] for h in template_headers[:10]]}")
+            return
 
-        # Find column for hierarchy identifier (ZBM Name, ABM Name, or Division Name)
-        # Priority: ZBM Name > ABM Name > Division Name > first available column
-        hierarchy_col = None
+        # Find ZBM Code and ZBM Name columns
+        zbm_code_col = column_mapping.get('ZBM Code')
+        zbm_name_col = column_mapping.get('ZBM Name')
+        
+        if zbm_code_col is None or zbm_name_col is None:
+            print(f"   ⚠️  WARNING: ZBM Code or ZBM Name column not found in template")
+            print(f"      ZBM Code column: {zbm_code_col}, ZBM Name column: {zbm_name_col}")
+        
+        # Find ABM Name column for ABM/TBM rows (similar to ZBM reports)
+        abm_name_col = None
         for col_idx, header_str in template_headers:
             header_lower = str(header_str).lower()
-            if 'zbm' in header_lower and 'name' in header_lower:
-                hierarchy_col = col_idx
+            if 'abm' in header_lower and 'name' in header_lower:
+                abm_name_col = col_idx
                 break
         
-        if hierarchy_col is None:
-            for col_idx, header_str in template_headers:
-                header_lower = str(header_str).lower()
-                if 'abm' in header_lower and 'name' in header_lower:
-                    hierarchy_col = col_idx
-                    break
-        
-        if hierarchy_col is None:
-            # Use Division Name column if available
-            hierarchy_col = column_mapping.get('Division Name')
-        
-        if hierarchy_col is None:
-            # Use Division column if available
-            hierarchy_col = column_mapping.get('Division')
-        
-        if hierarchy_col is None:
-            # Use first column as fallback
-            hierarchy_col = 1
-            print(f"   ⚠️  No hierarchy column found, using column {hierarchy_col} as fallback")
-        
-        # Clear existing data rows (between header and total)
+        # Clear existing data rows
         max_data_rows = len(summary_df) + 10
-        for r in range(data_start_row, min(data_start_row + max_data_rows, total_row)):
+        clear_end_row = total_row if total_row else (data_start_row + max_data_rows + 5)
+        for r in range(data_start_row, min(data_start_row + max_data_rows + 5, clear_end_row)):
             for c in range(1, ws.max_column + 1):
                 try:
                     cell = ws.cell(row=r, column=c)
@@ -612,152 +706,100 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 except:
                     pass
 
-        # Separate rows by level
-        zbm_rows = summary_df[summary_df['Level'] == 'ZBM'].copy()
-        abm_rows = summary_df[summary_df['Level'] == 'ABM'].copy()
-        tbm_rows = summary_df[summary_df['Level'] == 'TBM'].copy()
-        total_row_data = summary_df[summary_df['Level'] == 'Total'].iloc[0]
+        # Check if we have data to write
+        if len(summary_df) == 0:
+            print(f"   ⚠️  No data to write for Division {div_code}")
+            return
         
-        # Sort rows to maintain hierarchy
-        zbm_rows = zbm_rows.sort_values('ZBM Code')
-        abm_rows = abm_rows.sort_values(['ZBM Code', 'ABM Code'])
-        tbm_rows = tbm_rows.sort_values(['ZBM Code', 'ABM Code', 'TBM Code'])
+        print(f"   📝 Writing {len(summary_df)} ZBM rows starting at row {data_start_row}")
         
-        # Write hierarchical data rows
-        current_row = data_start_row
+        # Sort ZBM rows (like ZBM reports sort ABM rows)
+        zbm_rows = summary_df.sort_values('ZBM Code')
+        
+        # Write data rows (simple format like ZBM reports - just ZBM rows)
         template_data_row = data_start_row
-        
-        # Write ZBM rows
-        for idx, (_, zbm_row) in enumerate(zbm_rows.iterrows()):
-            target_row = current_row
+        rows_written = 0
+        for i in range(len(zbm_rows)):
+            target_row = data_start_row + i
             copy_row_style(template_data_row, target_row)
             
-            # Set hierarchy identifier
-            if hierarchy_col:
-                zbm_display = f"{zbm_row['ZBM Code']} - {zbm_row['ZBM Name']}"
-                ws.cell(row=target_row, column=hierarchy_col, value=zbm_display)
-                cell = ws.cell(row=target_row, column=hierarchy_col)
-                cell.font = Font(bold=True, name='Arial', size=10)
-                cell.alignment = Alignment(horizontal='left', vertical='center')
+            zbm_row = zbm_rows.iloc[i]
             
-            # Write data
+            # Write all columns
             for col_name, col_idx in column_mapping.items():
-                if col_name in zbm_row.index and col_name not in ['Level', 'ZBM Code', 'ZBM Name', 'ABM Code', 'ABM Name', 'TBM Code', 'TBM Name']:
+                if col_name in zbm_row.index:
                     value = zbm_row[col_name]
                     try:
                         cell = ws.cell(row=target_row, column=col_idx)
                         cell.value = value
+                        
                         if isinstance(value, (int, float)) and not pd.isna(value):
                             cell.number_format = '0'
-                            cell.font = Font(bold=True, name='Arial', size=10)
-                            cell.alignment = Alignment(horizontal='center', vertical='center')
-                    except:
+                        rows_written += 1
+                    except Exception as e:
+                        print(f"   ⚠️  Error writing {col_name} to row {target_row}, col {col_idx}: {e}")
                         pass
-            
-            current_row += 1
-            
-            # Write ABM rows under this ZBM
-            zbm_abms = abm_rows[abm_rows['ZBM Code'] == zbm_row['ZBM Code']]
-            for _, abm_row in zbm_abms.iterrows():
-                target_row = current_row
-                copy_row_style(template_data_row, target_row)
-                
-                # Set hierarchy identifier (indented)
-                if hierarchy_col:
-                    abm_display = f"  {abm_row['ABM Code']} - {abm_row['ABM Name']}"
-                    ws.cell(row=target_row, column=hierarchy_col, value=abm_display)
-                    cell = ws.cell(row=target_row, column=hierarchy_col)
-                    cell.font = Font(name='Arial', size=10)
-                    cell.alignment = Alignment(horizontal='left', vertical='center')
-                
-                # Write data
-                for col_name, col_idx in column_mapping.items():
-                    if col_name in abm_row.index and col_name not in ['Level', 'ZBM Code', 'ZBM Name', 'ABM Code', 'ABM Name', 'TBM Code', 'TBM Name']:
-                        value = abm_row[col_name]
-                        try:
-                            cell = ws.cell(row=target_row, column=col_idx)
-                            cell.value = value
-                            if isinstance(value, (int, float)) and not pd.isna(value):
-                                cell.number_format = '0'
-                        except:
-                            pass
-                
-                current_row += 1
-                
-                # Write TBM rows under this ABM
-                abm_tbms = tbm_rows[(tbm_rows['ZBM Code'] == abm_row['ZBM Code']) & 
-                                   (tbm_rows['ABM Code'] == abm_row['ABM Code'])]
-                for _, tbm_row in abm_tbms.iterrows():
-                    target_row = current_row
-                    copy_row_style(template_data_row, target_row)
-                    
-                    # Set hierarchy identifier (more indented)
-                    if hierarchy_col:
-                        tbm_display = f"    {tbm_row['TBM Code']}"
-                        ws.cell(row=target_row, column=hierarchy_col, value=tbm_display)
-                        cell = ws.cell(row=target_row, column=hierarchy_col)
-                        cell.font = Font(name='Arial', size=9)
-                        cell.alignment = Alignment(horizontal='left', vertical='center')
-                    
-                    # Write data
-                    for col_name, col_idx in column_mapping.items():
-                        if col_name in tbm_row.index and col_name not in ['Level', 'ZBM Code', 'ZBM Name', 'ABM Code', 'ABM Name', 'TBM Code', 'TBM Name']:
-                            value = tbm_row[col_name]
-                            try:
-                                cell = ws.cell(row=target_row, column=col_idx)
-                                cell.value = value
-                                if isinstance(value, (int, float)) and not pd.isna(value):
-                                    cell.number_format = '0'
-                            except:
-                                pass
-                    
-                    current_row += 1
         
-        # Write Total row
-        copy_row_style(total_row, total_row)
+        print(f"   ✅ Wrote {rows_written} cell values across {len(zbm_rows)} rows")
         
-        # Set "Total" text in first column or hierarchy column
-        total_label_col = hierarchy_col if hierarchy_col else 1
-        ws.cell(row=total_row, column=total_label_col, value="Total")
-        cell = ws.cell(row=total_row, column=total_label_col)
-        cell.font = Font(bold=True, name='Arial', size=10)
-        cell.alignment = Alignment(horizontal='center', vertical='center')
+        # Add total row (like ZBM reports)
+        total_row_pos = data_start_row + len(zbm_rows)
+        copy_row_style(template_data_row, total_row_pos)
         
-        # Write total data
-        values_written = 0
+        # Set "Total" text in ZBM Name column
+        if zbm_name_col:
+            cell = ws.cell(row=total_row_pos, column=zbm_name_col)
+            cell.value = "Total"
+            cell.font = Font(bold=True, name='Arial', size=10)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Calculate and write totals (like ZBM reports)
+        # List of columns that should NOT be summed (text columns)
+        exclude_from_total = ['ZBM Code', 'ZBM Name', 'Level', 'Affiliate', 'Division', 'Division Name', '# Unique ZBMs']
+        
         for col_name, col_idx in column_mapping.items():
-            if col_name in total_row_data.index and col_name not in ['Level', 'ZBM Code', 'ZBM Name', 'ABM Code', 'ABM Name', 'TBM Code', 'TBM Name']:
-                value = total_row_data[col_name]
+            if col_name in zbm_rows.columns and col_name not in exclude_from_total:
                 try:
-                    cell = ws.cell(row=total_row, column=col_idx)
-                    cell.value = value
-                    values_written += 1
+                    # Check if column contains numeric data
+                    col_data = zbm_rows[col_name]
                     
-                    if isinstance(value, (int, float)) and not pd.isna(value):
+                    # Try to convert to numeric, skip if not numeric
+                    numeric_data = pd.to_numeric(col_data, errors='coerce')
+                    
+                    if numeric_data.notna().any():  # If any values are numeric
+                        total_value = int(numeric_data.sum())
+                        
+                        cell = ws.cell(row=total_row_pos, column=col_idx)
+                        cell.value = total_value
+                        cell.font = Font(bold=True, name='Arial', size=10)
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
                         cell.number_format = '0'
-                        cell.font = Font(bold=True, name='Arial', size=10)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    else:
-                        cell.font = Font(bold=True, name='Arial', size=10)
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
                 except Exception as e:
-                    print(f"   ⚠️  Warning: Could not set value for column '{col_name}' (col {col_idx}): {e}")
+                    # Skip non-numeric columns silently
+                    pass
         
-        print(f"   ✅ Wrote {len(zbm_rows)} ZBM rows, {len(abm_rows)} ABM rows, {len(tbm_rows)} TBM rows, and 1 Total row")
-        print(f"   ✅ Wrote {values_written} values to Total row")
+        print(f"   ✅ Wrote {len(zbm_rows)} ZBM rows and 1 Total row")
 
         # Save file
         safe_div_name = str(div_name).replace(' ', '_').replace('/', '_').replace('\\', '_')
         filename = f"Division_Summary_{div_code}_{safe_div_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
         filepath = os.path.join(output_dir, filename)
         
+        print(f"   💾 Saving file to: {filepath}")
         wb.save(filepath)
-        print(f"   ✅ Created: {filename}")
+        
+        # Verify file was created
+        if os.path.exists(filepath):
+            file_size = os.path.getsize(filepath)
+            print(f"   ✅ Created: {filename} ({file_size} bytes)")
+        else:
+            print(f"   ❌ ERROR: File was not created at {filepath}")
         
     except Exception as e:
         print(f"   ❌ Error creating Excel report for Division {div_code}: {e}")
         import traceback
         traceback.print_exc()
+        raise  # Re-raise to see the error
 
 if __name__ == "__main__":
     create_division_hierarchical_reports()
