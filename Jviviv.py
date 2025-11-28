@@ -121,9 +121,15 @@ def create_division_hierarchical_reports():
         'Rto Reason': 'first',
     }
     
-    # Add TBM created by column if it exists and is different
-    if tbm_created_by_col and tbm_created_by_col != 'TBM EMAIL_ID':
+    # Add TBM created by column (always include it for unique counting)
+    if tbm_created_by_col and tbm_created_by_col in df.columns:
         agg_dict[tbm_created_by_col] = 'first'
+    elif 'TBM EMAIL_ID' in df.columns:
+        # Fallback to TBM EMAIL_ID if created by column not found
+        agg_dict['TBM EMAIL_ID'] = 'first'
+        if tbm_created_by_col != 'TBM EMAIL_ID':
+            tbm_created_by_col = 'TBM EMAIL_ID'
+            print(f"   ⚠️  Using 'TBM EMAIL_ID' as TBM identifier")
     
     # Add TBM HQ if it exists
     if 'TBM HQ' in df.columns:
@@ -137,6 +143,21 @@ def create_division_hierarchical_reports():
     
     print(f"📊 Deduplicated from {len(df)} rows to {len(df_dedup)} unique (Request ID + TBM Division + ABM) combinations")
     print(f"📊 Unique Request IDs after dedup: {df_dedup['Assigned Request Ids'].nunique()}")
+    
+    # Verify TBM column exists in deduplicated data
+    if tbm_created_by_col not in df_dedup.columns:
+        print(f"   ⚠️  WARNING: TBM column '{tbm_created_by_col}' not found in deduplicated data!")
+        print(f"   Available columns: {list(df_dedup.columns)}")
+        # Try to find alternative
+        if 'TBM EMAIL_ID' in df_dedup.columns:
+            tbm_created_by_col = 'TBM EMAIL_ID'
+            print(f"   ✅ Using 'TBM EMAIL_ID' instead")
+        else:
+            print(f"   ❌ CRITICAL: No TBM identifier column found!")
+    
+    # Verify HCP column exists
+    if 'Doctor: Customer Code' not in df_dedup.columns:
+        print(f"   ⚠️  WARNING: HCP column 'Doctor: Customer Code' not found in deduplicated data!")
     
     # Get unique TBM Divisions
     divisions = df_dedup.groupby('TBM Division').agg({
@@ -209,10 +230,18 @@ def create_division_hierarchical_reports():
         # Helper function to calculate metrics for a given dataset
         def calculate_metrics(data_subset, level_name=""):
             """Calculate all metrics for a given data subset"""
-            # Calculate unique counts - use nunique() for accurate unique counts
-            unique_tbms = data_subset[tbm_created_by_col].nunique()
-            unique_hcps = data_subset['Doctor: Customer Code'].nunique()
-            unique_requests = data_subset['Assigned Request Ids'].nunique()
+            # Calculate unique counts - filter out invalid values before counting
+            tbm_col_data = data_subset[tbm_created_by_col].astype(str).str.strip()
+            tbm_col_data = tbm_col_data[tbm_col_data.notna() & (tbm_col_data != '') & (tbm_col_data != 'nan') & (tbm_col_data != '0') & (tbm_col_data != '0.0')]
+            unique_tbms = tbm_col_data.nunique()
+            
+            hcp_col_data = data_subset['Doctor: Customer Code'].astype(str).str.strip()
+            hcp_col_data = hcp_col_data[hcp_col_data.notna() & (hcp_col_data != '') & (hcp_col_data != 'nan') & (hcp_col_data != '0') & (hcp_col_data != '0.0')]
+            unique_hcps = hcp_col_data.nunique()
+            
+            request_col_data = data_subset['Assigned Request Ids'].astype(str).str.strip()
+            request_col_data = request_col_data[request_col_data.notna() & (request_col_data != '') & (request_col_data != 'nan')]
+            unique_requests = request_col_data.nunique()
             
             # === SECTION A: Request Cancelled Out of Stock ===
             ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
@@ -227,8 +256,15 @@ def create_division_hierarchical_reports():
             pending_for_invoicing = data_subset[data_subset['Final Answer'].isin(hub_pending_statuses)]['Assigned Request Ids'].nunique()
             
             # === SECTION E: Pending for Dispatch ===
-            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending']
-            pending_for_dispatch = data_subset[data_subset['Final Answer'].isin(dispatch_pending_statuses)]['Assigned Request Ids'].nunique()
+            # Handle variations in status text (extra spaces, case differences)
+            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending', 'dispatch pending', 'DISPATCH PENDING', 'Dispatch Pending ']
+            # Normalize Final Answer for matching
+            data_subset_normalized = data_subset.copy()
+            data_subset_normalized['Final Answer Normalized'] = data_subset_normalized['Final Answer'].astype(str).str.strip().str.lower()
+            dispatch_pending_normalized = [s.strip().lower() for s in dispatch_pending_statuses]
+            pending_for_dispatch = data_subset_normalized[
+                data_subset_normalized['Final Answer Normalized'].isin(dispatch_pending_normalized)
+            ]['Assigned Request Ids'].nunique()
             
             # === SECTION G: Delivered ===
             delivered_statuses = ['Delivered']
@@ -302,7 +338,7 @@ def create_division_hierarchical_reports():
             }
         
         # Process each ZBM (similar to how ZBM reports process ABMs)
-        for _, zbm_row in zbms.iterrows():
+        for i, (_, zbm_row) in enumerate(zbms.iterrows()):
             zbm_code = zbm_row['ZBM Terr Code']
             zbm_name = zbm_row['ZBM Name']
             
@@ -310,9 +346,36 @@ def create_division_hierarchical_reports():
             zbm_data = div_data[div_data['ZBM Terr Code'] == zbm_code].copy()
             
             # Calculate ZBM-level metrics (using nunique for accurate counts)
-            unique_tbms = zbm_data[tbm_created_by_col].nunique()
-            unique_hcps = zbm_data['Doctor: Customer Code'].nunique()
-            unique_requests = zbm_data['Assigned Request Ids'].nunique()
+            # Filter out invalid values (NaN, empty strings, '0', etc.) before counting
+            tbm_col_data = zbm_data[tbm_created_by_col].astype(str).str.strip()
+            tbm_col_data = tbm_col_data[tbm_col_data.notna() & (tbm_col_data != '') & (tbm_col_data != 'nan') & (tbm_col_data != '0') & (tbm_col_data != '0.0')]
+            unique_tbms = tbm_col_data.nunique()
+            
+            hcp_col_data = zbm_data['Doctor: Customer Code'].astype(str).str.strip()
+            hcp_col_data = hcp_col_data[hcp_col_data.notna() & (hcp_col_data != '') & (hcp_col_data != 'nan') & (hcp_col_data != '0') & (hcp_col_data != '0.0')]
+            unique_hcps = hcp_col_data.nunique()
+            
+            request_col_data = zbm_data['Assigned Request Ids'].astype(str).str.strip()
+            request_col_data = request_col_data[request_col_data.notna() & (request_col_data != '') & (request_col_data != 'nan')]
+            unique_requests = request_col_data.nunique()
+            
+            # Debug: Show unique counts for first ZBM
+            if i == 0:  # First ZBM in division
+                print(f"      🔍 Unique counts for ZBM {zbm_code}:")
+                print(f"         TBMs: {unique_tbms} (from {len(tbm_col_data)} valid TBM entries)")
+                print(f"         HCPs: {unique_hcps} (from {len(hcp_col_data)} valid HCP entries)")
+                print(f"         Requests: {unique_requests} (from {len(request_col_data)} valid request entries)")
+                # Show sample TBM and HCP values for debugging
+                if len(tbm_col_data) > 0:
+                    print(f"         Sample TBMs: {tbm_col_data.unique()[:3].tolist()}")
+                if len(hcp_col_data) > 0:
+                    print(f"         Sample HCPs: {hcp_col_data.unique()[:3].tolist()}")
+            
+            # Validation: Unique counts should be reasonable
+            if unique_tbms > unique_requests:
+                print(f"      ⚠️  Warning for ZBM {zbm_code}: Unique TBMs ({unique_tbms}) > Unique Requests ({unique_requests})")
+            if unique_hcps > unique_requests:
+                print(f"      ⚠️  Warning for ZBM {zbm_code}: Unique HCPs ({unique_hcps}) > Unique Requests ({unique_requests})")
             
             # === SECTION A: Request Cancelled Out of Stock ===
             ho_statuses = ['Out of stock', 'On hold', 'Not permitted']
@@ -327,8 +390,22 @@ def create_division_hierarchical_reports():
             pending_for_invoicing = zbm_data[zbm_data['Final Answer'].isin(hub_pending_statuses)]['Assigned Request Ids'].nunique()
             
             # === SECTION E: Pending for Dispatch ===
-            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending']
-            pending_for_dispatch = zbm_data[zbm_data['Final Answer'].isin(dispatch_pending_statuses)]['Assigned Request Ids'].nunique()
+            # Handle variations in status text (extra spaces, case differences)
+            dispatch_pending_statuses = ['Dispatch  Pending', 'Dispatch Pending', 'dispatch pending', 'DISPATCH PENDING', 'Dispatch Pending ']
+            # Normalize Final Answer for matching
+            zbm_data_normalized = zbm_data.copy()
+            zbm_data_normalized['Final Answer Normalized'] = zbm_data_normalized['Final Answer'].astype(str).str.strip().str.lower()
+            dispatch_pending_normalized = [s.strip().lower() for s in dispatch_pending_statuses]
+            pending_for_dispatch = zbm_data_normalized[
+                zbm_data_normalized['Final Answer Normalized'].isin(dispatch_pending_normalized)
+            ]['Assigned Request Ids'].nunique()
+            
+            # Debug: Show actual status values found
+            unique_statuses = zbm_data['Final Answer'].unique()
+            dispatch_related = [s for s in unique_statuses if 'dispatch' in str(s).lower() and 'pending' in str(s).lower()]
+            if dispatch_related:
+                print(f"      Found dispatch pending statuses: {dispatch_related}")
+                print(f"      Count: {pending_for_dispatch} unique requests")
             
             # === SECTION G: Delivered ===
             delivered_statuses = ['Delivered']
@@ -372,7 +449,29 @@ def create_division_hierarchical_reports():
             sent_to_hub = pending_for_invoicing + pending_for_dispatch + requests_dispatched
             requests_raised = unique_requests
             
-            # Count unique ZBMs in this division (for this ZBM row, it's 1, but we'll show total unique ZBMs in division)
+            # === VALIDATION CHECKS ===
+            # Validate: A + B + C should equal total requests raised
+            section_a_b_c = request_cancelled_out_of_stock + action_pending_at_ho + sent_to_hub
+            if abs(section_a_b_c - requests_raised) > 0:
+                print(f"      ⚠️  Validation warning for ZBM {zbm_code}: A+B+C ({section_a_b_c}) != Requests Raised ({requests_raised})")
+            
+            # Validate: C = D + E + F
+            section_d_e_f = pending_for_invoicing + pending_for_dispatch + requests_dispatched
+            if abs(sent_to_hub - section_d_e_f) > 0:
+                print(f"      ⚠️  Validation warning for ZBM {zbm_code}: C ({sent_to_hub}) != D+E+F ({section_d_e_f})")
+                print(f"         D={pending_for_invoicing}, E={pending_for_dispatch}, F={requests_dispatched}")
+            
+            # Validate: F = G + H + I
+            section_g_h_i = delivered + dispatched_in_transit + rto_total
+            if abs(requests_dispatched - section_g_h_i) > 0:
+                print(f"      ⚠️  Validation warning for ZBM {zbm_code}: F ({requests_dispatched}) != G+H+I ({section_g_h_i})")
+            
+            # Validate: RTO reasons sum should equal RTO total
+            rto_reasons_sum = incomplete_address + doctor_refused_to_accept + doctor_non_contactable + rto_due_to_hold_delivery
+            if abs(rto_total - rto_reasons_sum) > 0:
+                print(f"      ⚠️  Validation warning for ZBM {zbm_code}: RTO Total ({rto_total}) != RTO Reasons Sum ({rto_reasons_sum})")
+            
+            # Count unique ZBMs in this division (same value for all ZBM rows in the division)
             unique_zbms_in_division = len(zbms)
             
             summary_data.append({
@@ -412,7 +511,28 @@ def create_division_hierarchical_reports():
         div_total_requests = div_data['Assigned Request Ids'].nunique()
         zbm_sum = div_summary_df['# Requests Raised\n(A+B+C)'].sum()
         
+        # Calculate division-level unique counts for validation
+        div_tbm_col_data = div_data[tbm_created_by_col].astype(str).str.strip()
+        div_tbm_col_data = div_tbm_col_data[div_tbm_col_data.notna() & (div_tbm_col_data != '') & (div_tbm_col_data != 'nan') & (div_tbm_col_data != '0') & (div_tbm_col_data != '0.0')]
+        div_unique_tbms = div_tbm_col_data.nunique()
+        
+        div_hcp_col_data = div_data['Doctor: Customer Code'].astype(str).str.strip()
+        div_hcp_col_data = div_hcp_col_data[div_hcp_col_data.notna() & (div_hcp_col_data != '') & (div_hcp_col_data != 'nan') & (div_hcp_col_data != '0') & (div_hcp_col_data != '0.0')]
+        div_unique_hcps = div_hcp_col_data.nunique()
+        
+        # Sum of ZBM-level unique counts (should be >= division total due to potential overlaps)
+        zbm_tbms_sum = div_summary_df['# Unique TBMs'].sum()
+        zbm_hcps_sum = div_summary_df['# Unique HCPs'].sum()
+        
         print(f"   ✅ Unique ZBMs: {len(zbms)}, Total requests: {zbm_sum}")
+        print(f"   📊 Division-level unique counts: TBMs={div_unique_tbms}, HCPs={div_unique_hcps}")
+        print(f"   📊 ZBM-level sums: TBMs={zbm_tbms_sum}, HCPs={zbm_hcps_sum}")
+        
+        # Note: ZBM sums can be >= division totals due to overlaps (same TBM/HCP in multiple ZBMs)
+        if zbm_tbms_sum < div_unique_tbms:
+            print(f"      ⚠️  Warning: ZBM TBM sum ({zbm_tbms_sum}) < Division TBM total ({div_unique_tbms})")
+        if zbm_hcps_sum < div_unique_hcps:
+            print(f"      ⚠️  Warning: ZBM HCP sum ({zbm_hcps_sum}) < Division HCP total ({div_unique_hcps})")
         
         if abs(zbm_sum - div_total_requests) > 0:
             print(f"      ⚠️  ZBM sum doesn't match division total (diff: {abs(div_total_requests - zbm_sum)})")
@@ -559,7 +679,7 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             ('Action pending / In Process At HO (B)', ['Action pending', 'In Process At HO', '# Action pending / In Process', '(B)']),
             ("Sent to HUB ('C)\n(D+E+F)", ['Sent to HUB', 'Sent to Hub', '(C)', '(D+E+F)']),
             ('Pending for Invoicing (D)', ['Pending for Invoicing', 'Invoicing', '(D)']),
-            ('Pending for Dispatch (E)', ['Pending for Dispatch', 'Dispatch', '# Requests dispatched', '(E)']),
+            ('Pending for Dispatch (E)', ['Pending for Dispatch', 'Pending for dispatch', 'Pending For Dispatch', '(E)']),  # Fixed: More specific match, avoid conflict with "Requests Dispatched"
             ('# Requests Dispatched (F)\n(G+H+I)', ['Requests Dispatched', '# Requests Dispatched', '(F)', '(G+H+I)']),
             ('Delivered (G)', ['Delivered', '# Delivered', '(G)']),
             ('Dispatched & In Transit (H)', ['Dispatched & In Transit', 'Dispatched &amp; In Transit', '# Dispatched & In Transit', 'In Transit', '(H)']),
@@ -634,12 +754,41 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             print(f"   ⚠️  WARNING: {len(missing_mappings)} columns in summary_df have no mapping:")
             for col in missing_mappings:
                 print(f"      - '{col}'")
-                # Try to find similar headers
+                # Try to find similar headers with more flexible matching
+                best_candidate = None
+                best_score = 0
                 for col_idx, header in template_headers:
-                    if any(word.lower() in str(header).lower() for word in col.split() if len(word) > 3):
-                        print(f"        (Possible match: Col {col_idx} = '{header}')")
+                    if col_idx in column_mapping.values():
+                        continue
+                    # More flexible matching: check for key words
+                    col_words = set(word.lower() for word in col.split() if len(word) > 2)
+                    header_words = set(word.lower() for word in str(header).split() if len(word) > 2)
+                    common_words = col_words.intersection(header_words)
+                    if len(common_words) >= 2:  # At least 2 common words
+                        score = len(common_words)
+                        if score > best_score:
+                            best_score = score
+                            best_candidate = (col_idx, header)
+                
+                if best_candidate:
+                    print(f"        (Best candidate: Col {best_candidate[0]} = '{best_candidate[1]}')")
+                    # Auto-map if confidence is high
+                    if best_score >= 3:
+                        column_mapping[col] = best_candidate[0]
+                        print(f"        ✅ Auto-mapped '{col}' to column {best_candidate[0]}")
         else:
             print(f"   ✅ All {len(summary_df.columns)} columns have mappings!")
+        
+        # Critical check: Ensure "Pending for Dispatch (E)" is mapped
+        if 'Pending for Dispatch (E)' not in column_mapping:
+            print(f"   ⚠️  CRITICAL: 'Pending for Dispatch (E)' not mapped! Searching manually...")
+            for col_idx, header_str in template_headers:
+                header_lower = str(header_str).lower().replace('\n', ' ').replace('\r', ' ')
+                if 'pending' in header_lower and 'dispatch' in header_lower and 'dispatched' not in header_lower:
+                    if col_idx not in column_mapping.values():
+                        column_mapping['Pending for Dispatch (E)'] = col_idx
+                        print(f"   ✅ Manually mapped 'Pending for Dispatch (E)' to column {col_idx} ('{header_str}')")
+                        break
         
         # Critical check: Must have ZBM Code and ZBM Name columns mapped
         if 'ZBM Code' not in column_mapping:
@@ -719,6 +868,16 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         # Write data rows (simple format like ZBM reports - just ZBM rows)
         template_data_row = data_start_row
         rows_written = 0
+        cells_written = 0
+        
+        # Debug: Print sample row data before writing
+        if len(zbm_rows) > 0:
+            sample_row = zbm_rows.iloc[0]
+            print(f"   🔍 Sample row data (first ZBM):")
+            print(f"      Pending for Dispatch (E): {sample_row.get('Pending for Dispatch (E)', 'N/A')}")
+            print(f"      Pending for Invoicing (D): {sample_row.get('Pending for Invoicing (D)', 'N/A')}")
+            print(f"      # Requests Dispatched (F): {sample_row.get('# Requests Dispatched (F)\\n(G+H+I)', 'N/A')}")
+        
         for i in range(len(zbm_rows)):
             target_row = data_start_row + i
             copy_row_style(template_data_row, target_row)
@@ -730,17 +889,42 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                 if col_name in zbm_row.index:
                     value = zbm_row[col_name]
                     try:
+                        # Handle NaN/None values
+                        if pd.isna(value):
+                            value = 0  # Set NaN to 0 for numeric columns
+                        
+                        # Convert to int if it's a numeric value
+                        if isinstance(value, (int, float)) and not pd.isna(value):
+                            value = int(value)  # Ensure integer values are written as integers
+                        
                         cell = ws.cell(row=target_row, column=col_idx)
                         cell.value = value
                         
                         if isinstance(value, (int, float)) and not pd.isna(value):
                             cell.number_format = '0'
-                        rows_written += 1
+                        
+                        # Debug: Log important columns
+                        if 'Pending for Dispatch' in col_name:
+                            print(f"      Row {target_row}, Col {col_idx} ({col_name}): {value}")
+                        
+                        cells_written += 1
                     except Exception as e:
                         print(f"   ⚠️  Error writing {col_name} to row {target_row}, col {col_idx}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         pass
+            
+            rows_written += 1
         
-        print(f"   ✅ Wrote {rows_written} cell values across {len(zbm_rows)} rows")
+        print(f"   ✅ Wrote {cells_written} cell values across {rows_written} rows")
+        
+        # Verify critical columns were written
+        if 'Pending for Dispatch (E)' in column_mapping:
+            pending_dispatch_col = column_mapping['Pending for Dispatch (E)']
+            sample_value = ws.cell(row=data_start_row, column=pending_dispatch_col).value
+            print(f"   ✅ Verified: Pending for Dispatch column (col {pending_dispatch_col}) has value: {sample_value} in first row")
+        else:
+            print(f"   ⚠️  WARNING: 'Pending for Dispatch (E)' column not mapped!")
         
         # Add total row (like ZBM reports)
         total_row_pos = data_start_row + len(zbm_rows)
@@ -757,14 +941,23 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
         # List of columns that should NOT be summed (text columns)
         exclude_from_total = ['ZBM Code', 'ZBM Name', 'Level', 'Affiliate', 'Division', 'Division Name', '# Unique ZBMs']
         
+        # Debug: Show which columns will be totaled
+        columns_to_total = [col for col in column_mapping.keys() if col in zbm_rows.columns and col not in exclude_from_total]
+        print(f"   📊 Calculating totals for {len(columns_to_total)} columns")
+        if 'Pending for Dispatch (E)' in columns_to_total:
+            print(f"      ✅ 'Pending for Dispatch (E)' will be included in totals")
+        
         for col_name, col_idx in column_mapping.items():
             if col_name in zbm_rows.columns and col_name not in exclude_from_total:
                 try:
                     # Check if column contains numeric data
                     col_data = zbm_rows[col_name]
                     
+                    # Replace NaN with 0 for calculation
+                    col_data_clean = col_data.fillna(0)
+                    
                     # Try to convert to numeric, skip if not numeric
-                    numeric_data = pd.to_numeric(col_data, errors='coerce')
+                    numeric_data = pd.to_numeric(col_data_clean, errors='coerce')
                     
                     if numeric_data.notna().any():  # If any values are numeric
                         total_value = int(numeric_data.sum())
@@ -774,8 +967,13 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
                         cell.font = Font(bold=True, name='Arial', size=10)
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                         cell.number_format = '0'
+                        
+                        # Debug: Log important totals
+                        if 'Pending for Dispatch' in col_name:
+                            print(f"      Total for {col_name}: {total_value}")
                 except Exception as e:
-                    # Skip non-numeric columns silently
+                    print(f"   ⚠️  Error calculating total for {col_name}: {e}")
+                    # Skip non-numeric columns
                     pass
         
         print(f"   ✅ Wrote {len(zbm_rows)} ZBM rows and 1 Total row")
