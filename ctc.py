@@ -106,15 +106,41 @@ if division_emails_df is None:
     print(f"      otherwise it will fall back to 'division_emails_sample.xlsx'")
     exit(1)
 
-# Verify required columns exist
-required_columns = ['Affiliate', 'Division Code', 'Division Name', 'Email id']
-missing_columns = [col for col in required_columns if col not in division_emails_df.columns]
-if missing_columns:
-    print(f"❌ Error: Missing required columns: {missing_columns}")
-    print(f"   File used: {file_used}")
+# Map column names flexibly (handle different column name variations)
+column_mapping = {}
+available_columns = [col.lower() for col in division_emails_df.columns]
+
+# Map Division Code column (try multiple variations)
+if 'division code' in available_columns:
+    div_code_col = division_emails_df.columns[available_columns.index('division code')]
+    column_mapping['Division Code'] = div_code_col
+elif 'division' in available_columns:
+    div_code_col = division_emails_df.columns[available_columns.index('division')]
+    column_mapping['Division Code'] = div_code_col
+    division_emails_df['Division Code'] = division_emails_df[div_code_col]
+else:
+    print(f"❌ Error: Could not find Division Code column")
     print(f"   Available columns: {list(division_emails_df.columns)}")
-    print(f"   Please ensure your file has columns: {required_columns}")
     exit(1)
+
+# Map Email id column (try multiple variations)
+if 'email id' in available_columns:
+    email_col = division_emails_df.columns[available_columns.index('email id')]
+    column_mapping['Email id'] = email_col
+elif 'email' in available_columns:
+    email_col = division_emails_df.columns[available_columns.index('email')]
+    column_mapping['Email id'] = email_col
+    division_emails_df['Email id'] = division_emails_df[email_col]
+else:
+    print(f"❌ Error: Could not find Email id column")
+    print(f"   Available columns: {list(division_emails_df.columns)}")
+    exit(1)
+
+print(f"✅ Column mapping:")
+print(f"   Division Code: '{column_mapping['Division Code']}'")
+print(f"   Email id: '{column_mapping['Email id']}'")
+
+# Note: Affiliate and Division Name will be retrieved from the main data file
 
 # Read ZBM Automation Email file to get division details
 print("📖 Reading ZBM Automation Email 2410252.xlsx...")
@@ -132,9 +158,11 @@ print(f"📋 Found {len(divisions)} unique Divisions to process")
 # Do this once before the loop
 try:
     division_emails_df['Division Code'] = division_emails_df['Division Code'].astype(str).str.strip()
-    print("✅ Division Code column converted to string for matching")
+    # Also convert Email id to string and clean
+    division_emails_df['Email id'] = division_emails_df['Email id'].astype(str).str.strip()
+    print("✅ Division Code and Email id columns converted to string for matching")
 except Exception as e:
-    print(f"⚠️ Warning: Could not convert Division Code column: {e}")
+    print(f"⚠️ Warning: Could not convert columns: {e}")
 
 # Initialize Outlook
 try:
