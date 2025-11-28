@@ -884,9 +884,16 @@ def create_division_excel_report(div_code, affiliate, div_name, summary_df, outp
             
             zbm_row = zbm_rows.iloc[i]
             
+            # Columns to skip for rows after the first (Affiliate and Division info)
+            skip_columns_for_subsequent_rows = ['Affiliate', 'Division', 'Division Name']
+            
             # Write all columns
             for col_name, col_idx in column_mapping.items():
                 if col_name in zbm_row.index:
+                    # Skip Affiliate and Division columns for rows after the first
+                    if i > 0 and col_name in skip_columns_for_subsequent_rows:
+                        continue  # Leave these cells empty for subsequent rows
+                    
                     value = zbm_row[col_name]
                     try:
                         # Handle NaN/None values
