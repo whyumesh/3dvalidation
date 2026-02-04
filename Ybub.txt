@@ -1,0 +1,350 @@
+Perfect, that helps 👍
+I’ll explain what Cursor AI has built in plain, human language, without code-heavy noise—so you understand what the system is actually doing, not just how it’s written.
+
+Think of this like I’m sitting next to you and walking you through it step by step.
+
+
+---
+
+Big Picture (In Simple Words)
+
+Your system is basically doing this:
+
+> “I don’t recognize this PDF… no problem. I’ll study it like a human, understand where the table is, figure out the columns and headers, check if I’m confident enough, and only then extract the data into Excel.”
+
+
+
+That entire behavior is what Phase 2 is.
+
+
+---
+
+Step 1: First Decision – Do I Know This PDF?
+
+When a PDF comes in, the system first asks:
+
+> “Have I seen this kind of PDF before?”
+
+
+
+If yes → use a ready-made template (fast, accurate).
+
+If no → switch to learning mode (Phase 2).
+
+
+So Phase 2 is only used when the PDF layout is new or unseen.
+
+
+---
+
+Step 2: Learning Mode (This Is the Smart Part)
+
+This is where Cursor AI has done the heavy lifting.
+
+2.1 Reading the PDF Like Coordinates, Not Text
+
+Instead of reading the PDF like a document, the system:
+
+Reads every word
+
+Notes where it is printed on the page (X and Y position)
+
+
+So it knows:
+
+“This word is on the left”
+
+“This number is below that one”
+
+“These things are aligned vertically”
+
+
+This is exactly how tables are detected.
+
+
+---
+
+2.2 Finding Where the Table Starts and Ends
+
+The system now asks:
+
+> “Where does the actual table begin, and where does it stop?”
+
+
+
+It:
+
+Ignores company names, addresses, GST numbers, etc.
+
+Looks for rows that repeat in a structured way
+
+Stops when it sees things like:
+
+TOTAL
+
+GRAND TOTAL
+
+Page footer text
+
+
+
+Result: 👉 A clean top and bottom boundary of the table.
+
+
+---
+
+2.3 Figuring Out Columns (Very Important)
+
+This is the clever bit.
+
+Instead of trusting one method, the system tries 4 different ways to guess columns:
+
+1. Using headers
+
+If headers are visible, use their positions.
+
+
+
+2. Using data alignment
+
+If numbers keep appearing at the same X-position, that’s a column.
+
+
+
+3. Using empty space
+
+Big vertical gaps usually mean column separation.
+
+
+
+4. Using statistics
+
+Makes a histogram of X-positions and finds peaks.
+
+
+
+
+Each method gives:
+
+A guess of columns
+
+A confidence score
+
+
+👉 The system chooses the best-performing method automatically.
+
+
+---
+
+2.4 Cleaning Up Column Mistakes
+
+After choosing columns, the system fixes common PDF problems:
+
+Merges columns that were accidentally split
+
+Joins broken product-name columns
+
+Ensures Quantity and Value are not merged
+
+Adjusts boundaries so data fits correctly
+
+
+Basically:
+
+> “Let me fix the mess PDFs usually create.”
+
+
+
+
+---
+
+2.5 Understanding Column Names (Headers)
+
+Now it asks:
+
+> “What is each column called?”
+
+
+
+It:
+
+Looks at the first few rows
+
+Combines multi-line headers
+
+Removes junk like phone numbers or addresses
+
+Tries keyword matching if headers are unclear
+
+
+Worst case:
+
+It uses Column_1, Column_2, etc.
+
+
+So extraction never stops just because headers are bad.
+
+
+---
+
+2.6 Understanding What Kind of Data Is Inside
+
+For each column, it checks:
+
+Is this mostly text?
+
+Mostly numbers?
+
+Dates?
+
+Mixed?
+
+
+This helps later to:
+
+Validate rows
+
+Catch obvious extraction errors
+
+
+
+---
+
+2.7 Deciding: “Am I Confident Enough?”
+
+Before extracting anything, the system checks itself.
+
+It calculates a confidence score based on:
+
+How clean the columns are
+
+Whether rows are missing
+
+Whether headers make sense
+
+Whether data types look consistent
+
+
+If confidence is:
+
+High (≥70%) → proceed
+
+Low → stop and report why
+
+
+This is important because:
+
+> It prevents garbage Excel files.
+
+
+
+
+---
+
+Step 3: Extracting Data Using What It Learned
+
+Now the system says:
+
+> “Okay, I understand this table. Time to extract.”
+
+
+
+For every page:
+
+It groups words into rows
+
+Assigns each word to a column
+
+Skips:
+
+Header rows
+
+Address blocks
+
+GST / PAN / phone numbers
+
+Page footers
+
+
+
+Only real data rows survive.
+
+
+---
+
+Step 4: Handling Multi-Page Tables
+
+If the table continues across pages:
+
+Page 1 → full learning
+
+Next pages:
+
+If layout matches → reuse structure
+
+If layout changes → relearn only headers
+
+
+
+So multi-page invoices or statements work correctly.
+
+
+---
+
+Step 5: Writing to Excel
+
+Finally:
+
+Each table becomes a sheet
+
+Headers go on top
+
+Rows go below
+
+Clean, structured Excel output
+
+
+
+---
+
+What Cursor AI Has Actually Built (In One Line)
+
+Cursor AI has helped you build:
+
+> A self-learning PDF table extractor that behaves like a human analyst, validates its own understanding, and refuses to extract data unless it is confident.
+
+
+
+That’s not trivial—it’s solid architecture.
+
+
+---
+
+Why This Matters for Your Project
+
+For your use case (1100+ stockists, unknown formats):
+
+You don’t need templates for everyone
+
+You only templatize high-volume / critical ones
+
+Phase 2 handles the long tail safely
+
+
+This is exactly the right hybrid approach.
+
+
+---
+
+If you want next, I can:
+
+Draw a mental model diagram
+
+Explain where this can break in real PDFs
+
+Suggest improvements to increase confidence score
+
+Help you explain this to non-technical management
+
+
+Just tell me what you want to understand next 👌
